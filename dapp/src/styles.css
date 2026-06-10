@@ -297,6 +297,17 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 .accessbox { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
 .accessbox .pay-head { align-items: center; }
 
+/* ---- multichain records ------------------------------------------------- */
+.records { margin: 4px 0 14px; padding: 14px; background: var(--field); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.records .pay-head { align-items: center; margin-bottom: 6px; }
+.records .row { margin-top: 8px; }
+.records select { flex: none; max-width: 150px; }
+.records input { flex: 1; min-width: 200px; }
+.rec-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.rec-row { display: flex; align-items: baseline; gap: 10px; }
+.rec-chain { flex: none; min-width: 86px; font-size: 12.5px; font-weight: 700; color: var(--green-700); }
+.rec-row .mono { font-size: 12px; }
+
 @media (max-width: 620px) {
   .modes, .features { grid-template-columns: 1fr; }
   .hero h1 { font-size: 36px; }

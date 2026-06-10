@@ -203,6 +203,7 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
         </div>
         <p className="muted">{result.status === 2 ? 'In its grace period — the current owner can still renew it.' : 'This name is already registered.'}</p>
         <PayBox label={result.label} name={result.name} />
+        <RecordsView label={result.label} />
         <AccessCheck label={result.label} name={result.name} />
       </div>
     );
@@ -345,7 +346,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
                 </div>
               </label>
               {points && <p className="result">Aztec <span className="mono">{points}</span></p>}
-              <EthRecordRow label={label} />
+              <RecordsManager label={label} />
               <div className="row">
                 <button className="ghost" onClick={lookup} disabled={busy}>Look up Aztec</button>
                 <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(mode ?? 'PUBLIC')})</button>
@@ -394,33 +395,92 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
   );
 }
 
-function EthRecordRow({ label }: { label: string }) {
-  const [eth, setEth] = useState('');
-  const [saved, setSaved] = useState<string | null>(null);
+/** Owner-side multichain records: point one name at Bitcoin, EVM chains,
+ *  Solana and Aztec at the same time - one record per chain. */
+function RecordsManager({ label }: { label: string }) {
+  const [chainKey, setChainKey] = useState('BTC');
+  const [addr, setAddr] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  async function save() {
+  const [records, setRecords] = useState<{ chain: azns.Chain; address: string }[] | null>(null);
+  const chain = azns.CHAINS.find((c) => c.key === chainKey)!;
+
+  async function loadAll() {
     setBusy(true); setMsg('');
-    try { await azns.setAddr(label, azns.COIN.ETHEREUM, eth.trim(), setMsg); setSaved(eth.trim()); setMsg('Saved.'); }
-    catch (e: any) { setMsg(`Couldn't save: ${e?.message ?? 'try again'}`); }
+    try { setRecords(await azns.getAllRecords(label)); }
+    catch (e: any) { setMsg(e?.message ?? 'could not load records'); }
     finally { setBusy(false); }
   }
-  async function lookup() {
+  async function save() {
     setBusy(true); setMsg('');
-    try { const a = await azns.getAddr(label, azns.COIN.ETHEREUM); setSaved(a || '(none set)'); }
-    catch (e: any) { setMsg(e?.message ?? 'lookup failed'); }
+    try {
+      await azns.setRecord(label, chainKey, addr.trim(), setMsg);
+      setAddr('');
+      await loadAll();
+      setMsg(`${chain.label} record saved.`);
+    } catch (e: any) { setMsg(`Couldn't save: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
   return (
-    <label className="field">Ethereum address (multichain)
-      <div className="row">
-        <input value={eth} onChange={(e) => setEth(e.target.value)} placeholder="0x… Ethereum address" disabled={busy} />
-        <button onClick={save} disabled={busy || !eth.trim()}>Save</button>
-        <button className="ghost" onClick={lookup} disabled={busy}>Look up</button>
+    <div className="records">
+      <div className="pay-head">
+        <b><Icon d={I.globe} size={14} /> Multichain records</b>
+        <button className="ghost" onClick={loadAll} disabled={busy}>{records === null ? 'Show records' : 'Refresh'}</button>
       </div>
-      {saved && <p className="result">Ethereum <span className="mono">{saved}</span></p>}
+      <p className="muted small">Point this name at addresses on many chains at once — one record per chain.</p>
+      <div className="row">
+        <select value={chainKey} onChange={(e) => setChainKey(e.target.value)} disabled={busy}>
+          {azns.CHAINS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+        </select>
+        <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder={chain.placeholder} disabled={busy} />
+        <button onClick={save} disabled={busy || !addr.trim()}>Save</button>
+      </div>
+      {records !== null && (
+        records.length === 0
+          ? <p className="muted small">No records yet.</p>
+          : <RecordList records={records} />
+      )}
       {msg && <p className="muted small">{msg}</p>}
-    </label>
+    </div>
+  );
+}
+
+/** Read-only records list shown to anyone on a taken name. */
+function RecordsView({ label }: { label: string }) {
+  const [busy, setBusy] = useState(false);
+  const [records, setRecords] = useState<{ chain: azns.Chain; address: string }[] | null>(null);
+  const [msg, setMsg] = useState('');
+  async function load() {
+    setBusy(true); setMsg('');
+    try {
+      const r = await azns.getAllRecords(label);
+      setRecords(r);
+      if (r.length === 0) setMsg('This name has no multichain records.');
+    } catch (e: any) { setMsg(e?.message ?? 'could not load records'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="accessbox">
+      <div className="pay-head">
+        <b><Icon d={I.globe} size={14} /> Where does it point?</b>
+        <button className="ghost" onClick={load} disabled={busy}>{busy ? 'Loading…' : records === null ? 'View records' : 'Refresh'}</button>
+      </div>
+      {records !== null && records.length > 0 && <RecordList records={records} />}
+      {msg && <p className="muted small">{msg}</p>}
+    </div>
+  );
+}
+
+function RecordList({ records }: { records: { chain: azns.Chain; address: string }[] }) {
+  return (
+    <div className="rec-list">
+      {records.map((r) => (
+        <div className="rec-row" key={r.chain.key}>
+          <span className="rec-chain">{r.chain.label}</span>
+          <span className="mono">{r.address}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 

@@ -310,46 +310,66 @@ export async function renew(raw: string, mode: ModeName, years: number, onStep: 
 }
 
 // =============================================================================
-//  Multichain address records (ENS-style): a public name can point at an
-//  address on any chain, keyed by SLIP-0044 coin type. Stored on-chain as two
-//  16-byte halves + length; we encode/decode hex addresses here.
+//  Multichain address records (ENS-style): a public name can point at MANY
+//  chains at once - each record is keyed by a SLIP-0044/ENSIP-11 coin type
+//  (see chains.ts for the registry + per-chain address codecs). On-chain an
+//  AddrRecord is { hi, lo, len }: two field-packed halves of up to 31 bytes
+//  each (62 bytes total - enough for any Bitcoin scriptPubKey), opaque to the
+//  contract.
 // =============================================================================
-export const COIN = { AZTEC: 0xa27ecn, ETHEREUM: 60n, SOLANA: 501n, BITCOIN: 0n } as const;
+import { CHAINS, chainByKey, parseAddress as parseChainAddress, formatAddress, type Chain } from './chains';
+export { CHAINS, type Chain };
 
-function encodeAddrBytes(hex: string): { hi: bigint; lo: bigint; len: number } {
-  let h = hex.trim().toLowerCase().replace(/^0x/, '');
-  if (h.length % 2) h = '0' + h;
-  const bytes = (h.match(/../g) ?? []).map((b) => parseInt(b, 16));
-  if (bytes.length === 0 || bytes.length > 32) throw new Error('address must be 1-32 bytes (hex)');
-  const buf = new Uint8Array(32);
-  buf.set(bytes, 32 - bytes.length); // right-aligned
+function packRecordBytes(bytes: Uint8Array): { hi: bigint; lo: bigint; len: number } {
+  if (bytes.length === 0 || bytes.length > 62) throw new Error('record must be 1-62 bytes');
   const toBig = (a: Uint8Array) => a.reduce((acc, b) => (acc << 8n) + BigInt(b), 0n);
-  return { hi: toBig(buf.slice(0, 16)), lo: toBig(buf.slice(16, 32)), len: bytes.length };
+  return { hi: toBig(bytes.slice(0, 31)), lo: toBig(bytes.slice(31)), len: bytes.length };
 }
-
-function decodeAddrBytes(hi: bigint, lo: bigint, len: number): string {
-  if (len <= 0) return '';
-  const out = new Uint8Array(32);
-  const put = (v: bigint, off: number) => { for (let i = 15; i >= 0; i--) { out[off + i] = Number(v & 0xffn); v >>= 8n; } };
-  put(hi, 0); put(lo, 16);
-  return '0x' + [...out.slice(32 - len)].map((b) => b.toString(16).padStart(2, '0')).join('');
+function unpackRecordBytes(hi: bigint, lo: bigint, len: number): Uint8Array {
+  if (len <= 0 || len > 62) return new Uint8Array(0);
+  const part = (v: bigint, n: number) => {
+    const out = new Uint8Array(n);
+    for (let i = n - 1; i >= 0; i--) { out[i] = Number(v & 0xffn); v >>= 8n; }
+    return out;
+  };
+  const hiLen = Math.min(len, 31), loLen = len - hiLen;
+  return new Uint8Array([...part(hi, hiLen), ...part(lo, loLen)]);
 }
 
 const big = (v: any): bigint => BigInt((v && v.toString) ? v.toString() : v);
 
-/** Set the address a public name points to on a given chain (coin type). */
-export async function setAddr(raw: string, coinType: bigint, hexAddr: string, onStep: (m: string) => void = () => {}) {
+/** Point a public name at an address on a chain (validates + encodes per chain). */
+export async function setRecord(raw: string, chainKey: string, address: string, onStep: (m: string) => void = () => {}) {
   await connect(); await ensureWritable(onStep);
-  const { hi, lo, len } = encodeAddrBytes(hexAddr);
-  onStep('Saving record…');
-  await send(conn!.azns.methods.set_addr(await nameHash(raw), coinType, hi, lo, len));
+  const chain = chainByKey(chainKey);
+  const bytes = await parseChainAddress(chain, address); // throws a friendly error if invalid
+  const { hi, lo, len } = packRecordBytes(bytes);
+  onStep(`Saving ${chain.label} record…`);
+  await send(conn!.azns.methods.set_addr(await nameHash(raw), chain.coinType, hi, lo, len));
 }
 
-/** Read the address a name points to on a given chain. '' if unset. */
-export async function getAddr(raw: string, coinType: bigint): Promise<string> {
+/** Read the address a name points to on one chain. '' if unset. */
+export async function getRecord(raw: string, chainKey: string): Promise<string> {
   await connect();
-  const rec: any = await sim(conn!.azns.methods.get_addr(await nameHash(raw), coinType));
-  return decodeAddrBytes(big(rec.hi), big(rec.lo), Number(big(rec.len)));
+  const chain = chainByKey(chainKey);
+  const rec: any = await sim(conn!.azns.methods.get_addr(await nameHash(raw), chain.coinType));
+  const bytes = unpackRecordBytes(big(rec.hi), big(rec.lo), Number(big(rec.len)));
+  return bytes.length ? formatAddress(chain, bytes) : '';
+}
+
+/** All records a name points to, across every known chain (set ones only). */
+export async function getAllRecords(raw: string): Promise<{ chain: Chain; address: string }[]> {
+  await connect();
+  const nh = await nameHash(raw);
+  const out: { chain: Chain; address: string }[] = [];
+  // Sequential on purpose: each read is a quick public simulate, and the PXE
+  // handles one simulation at a time.
+  for (const chain of CHAINS) {
+    const rec: any = await sim(conn!.azns.methods.get_addr(nh, chain.coinType));
+    const bytes = unpackRecordBytes(big(rec.hi), big(rec.lo), Number(big(rec.len)));
+    if (bytes.length) out.push({ chain, address: await formatAddress(chain, bytes) });
+  }
+  return out;
 }
 
 // =============================================================================
