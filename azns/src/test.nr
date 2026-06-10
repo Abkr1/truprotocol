@@ -90,10 +90,30 @@ unconstrained fn register_rejects_zero_duration() {
     env.call_private(alice, AZNS::at(azns).register(999, 5, alice, 0, 0));
 }
 
-// Labels under 3 characters are reserved and unpriced; price_for_length asserts.
+// Labels under 3 characters are reserved and unpriced; register asserts.
 #[test(should_fail_with = "label too short to register")]
 unconstrained fn register_rejects_short_label() {
     let (mut env, azns) = setup();
     let alice = env.create_light_account();
     env.call_private(alice, AZNS::at(azns).register(999, 2, alice, 1, 0));
+}
+
+// Pricing is per mode (PUBLIC $30 / SELECTIVE $100 / STEALTH $200 a year);
+// an out-of-range mode is rejected on the charge path by price_for_mode.
+#[test(should_fail_with = "invalid mode")]
+unconstrained fn register_rejects_invalid_mode() {
+    let (mut env, azns) = setup();
+    let alice = env.create_light_account();
+    env.call_private(alice, AZNS::at(azns).register(999, 5, alice, 1, 7));
+}
+
+// Renewing demands the name's REAL mode: the claimed (cheaper) mode is charged
+// privately but verified against public storage in _extend_expiry. An
+// unregistered name fails the registration check first - here we only assert
+// the renew path enforces validity end-to-end without a valid registration.
+#[test(should_fail_with = "name not registered")]
+unconstrained fn renew_unregistered_name_fails() {
+    let (mut env, azns) = setup();
+    let alice = env.create_light_account();
+    env.call_private(alice, AZNS::at(azns).renew(999, 0, 1));
 }

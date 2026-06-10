@@ -60,18 +60,21 @@ export async function nameHash(raw: string): Promise<Fr> {
   return hashed;
 }
 
-/** Annual price in USD cents for a label length — mirrors the contract. */
-export function priceCentsForLength(len: number): number {
-  if (len < 3) throw new Error('labels under 3 chars are not sold');
-  if (len === 3) return 30000; // $300
-  if (len === 4) return 10000; // $100
-  return 1000; // $10 for 5+
-}
-
 export const MODE = {
   PUBLIC: 0,
   SELECTIVE: 1,
   STEALTH: 2,
 } as const;
+export type ModeName = keyof typeof MODE;
+
+/** Annual price in USD cents per privacy mode — mirrors the contract. */
+export const PRICE_CENTS: Record<ModeName, number> = {
+  PUBLIC: 3000,      // $30/yr
+  SELECTIVE: 10000,  // $100/yr
+  STEALTH: 20000,    // $200/yr
+};
+export function priceCentsForMode(mode: ModeName): number {
+  return PRICE_CENTS[mode];
+}
 
 export const ONE_YEAR_SECS = 365n * 24n * 60n * 60n;

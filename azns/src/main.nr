@@ -86,17 +86,17 @@ pub contract AZNS {
     // Index of the nullifier within the public_inputs array.
     global NULLIFIER_INDEX: u32 = 0;
 
-    // ---- LEASE ECONOMICS (ENS-style) ----------------------------------------
-    // Annual price per name, by label length, expressed in USD CENTS so it's an
+    // ---- LEASE ECONOMICS ----------------------------------------------------
+    // Annual price per name, by PRIVACY MODE, expressed in USD CENTS so it's an
     // integer. The contract collects in a token, so a USD->token conversion must
     // happen at the fee hook (see _charge stub). Prices:
-    //   3-letter names : $300/yr  (30000 cents)
-    //   4-letter names : $100/yr  (10000 cents)
-    //   5+-letter names:  $10/yr  ( 1000 cents)
+    //   PUBLIC    : $30/yr   ( 3000 cents)
+    //   SELECTIVE : $100/yr  (10000 cents)
+    //   STEALTH   : $200/yr  (20000 cents)
     // Names shorter than 3 chars are not sold (premium/reserved).
-    global PRICE_3_CENTS: u64 = 30000;
-    global PRICE_4_CENTS: u64 = 10000;
-    global PRICE_5PLUS_CENTS: u64 = 1000;
+    global PRICE_PUBLIC_CENTS: u64 = 3000;
+    global PRICE_SELECTIVE_CENTS: u64 = 10000;
+    global PRICE_STEALTH_CENTS: u64 = 20000;
     global MIN_LABEL_LEN: u32 = 3;
 
     // Seconds in a (non-leap) year, used to convert duration_years -> seconds.
@@ -107,17 +107,18 @@ pub contract AZNS {
     // prior owner may renew; no one may register it fresh.
     global GRACE_PERIOD_SECS: u64 = 7_776_000; // 90 days
 
-    // Returns the annual price (USD cents) for a given label length. Pure helper,
-    // callable from any contract function (private or public).
+    // Returns the annual price (USD cents) for a privacy mode. Pure helper,
+    // callable from any contract function (private or public). Also serves as
+    // the mode-validity check on every charge path (invalid mode = revert).
     #[contract_library_method]
-    fn price_for_length(label_len: u32) -> u64 {
-        assert(label_len >= MIN_LABEL_LEN, "label too short to register");
-        if label_len == 3 {
-            PRICE_3_CENTS
-        } else if label_len == 4 {
-            PRICE_4_CENTS
+    fn price_for_mode(mode: u8) -> u64 {
+        assert(mode <= MODE_STEALTH, "invalid mode");
+        if mode == MODE_PUBLIC {
+            PRICE_PUBLIC_CENTS
+        } else if mode == MODE_SELECTIVE {
+            PRICE_SELECTIVE_CENTS
         } else {
-            PRICE_5PLUS_CENTS
+            PRICE_STEALTH_CENTS
         }
     }
 
@@ -207,9 +208,10 @@ pub contract AZNS {
         // 2. Personhood nullifier - burned so this proof can't be reused.
         let nullifier = public_inputs[NULLIFIER_INDEX];
 
-        // 3. Fee (see register for the length-binding security note).
+        // 3. Fee: priced by privacy mode (see register for the binding note).
+        assert(label_len >= MIN_LABEL_LEN, "label too short to register");
         assert(duration_years >= 1, "minimum lease is 1 year");
-        let total_cents = price_for_length(label_len) * duration_years;
+        let total_cents = price_for_mode(mode) * duration_years;
         let duration_secs = duration_years * YEAR_SECS;
         _charge(owner, total_cents);
 
@@ -223,12 +225,15 @@ pub contract AZNS {
         // register_first). The check happens in the enqueued public finalizer,
         // since verified_human is public state.
         //
-        // NOTE: label_len MUST be bound into name_hash off-chain (see lib.ts)
-        // so a user cannot claim a short name while declaring a longer (cheaper)
-        // length - a lie makes name_hash not match the name they want. This is
-        // the trustless enforcement of the pricing tiers.
+        // Pricing is by MODE. The mode passed here is the one _finalize writes
+        // to storage, so the price charged always matches the mode received -
+        // there is nothing to lie about. label_len is still bound into
+        // name_hash off-chain (see lib.ts), so the minimum-length rule can't
+        // be dodged: declaring a longer length makes name_hash not match the
+        // name being claimed.
+        assert(label_len >= MIN_LABEL_LEN, "label too short to register");
         assert(duration_years >= 1, "minimum lease is 1 year");
-        let total_cents = price_for_length(label_len) * duration_years;
+        let total_cents = price_for_mode(mode) * duration_years;
         let duration_secs = duration_years * YEAR_SECS;
         _charge(owner, total_cents);
 
@@ -322,26 +327,32 @@ pub contract AZNS {
     // Extends an existing lease WITHOUT re-proving personhood (no fresh
     // nullifier burn) - renewing is not a new registration. Anyone may pay to
     // renew any name (ENS allows gift-renewals too). The fee uses the same
-    // length tiers. Must still be within the owner's control window: name
-    // exists AND (not yet expired OR still inside grace period).
+    // per-mode prices. The renewer passes the name's mode as a CLAIM (the mode
+    // lives in public storage, unreadable from this private context); we charge
+    // by the claim here and the enqueued public step asserts it matches the
+    // stored mode - lying about a cheaper mode reverts the whole tx. Must still
+    // be within the owner's control window: name exists AND (not yet expired OR
+    // still inside grace period).
     #[external("private")]
-    fn renew(name_hash: Field, label_len: u32, duration_years: u64) {
+    fn renew(name_hash: Field, mode: u8, duration_years: u64) {
         assert(duration_years >= 1, "minimum renewal is 1 year");
-        let annual_cents = price_for_length(label_len);
+        let annual_cents = price_for_mode(mode);
         let total_cents = annual_cents * duration_years;
 
         // Charge first (private), then extend expiry (public).
         _charge(self.msg_sender(), total_cents);
 
         let extra_secs = duration_years * YEAR_SECS;
-        self.enqueue_self._extend_expiry(name_hash, extra_secs);
+        self.enqueue_self._extend_expiry(name_hash, extra_secs, mode);
     }
 
     #[external("public")]
     #[only_self]
-    fn _extend_expiry(name_hash: Field, extra_secs: u64) {
+    fn _extend_expiry(name_hash: Field, extra_secs: u64, claimed_mode: u8) {
         let current_owner = self.storage.owners.at(name_hash).read();
         assert(!current_owner.is_zero(), "name not registered");
+        // The mode the renewer paid for must be the name's actual mode.
+        assert(self.storage.mode.at(name_hash).read() == claimed_mode, "wrong mode for this name");
 
         let now = self.context.timestamp();
         let current_expiry = self.storage.expiry.at(name_hash).read();

@@ -18,7 +18,7 @@ import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from './contracts/AZNS';
 import {
-  nameHash, labelLength, normaliseName, priceCentsForLength,
+  nameHash, labelLength, normaliseName,
   MODE, ONE_YEAR_SECS, nowSecs, type ModeName,
 } from './lib';
 
@@ -57,7 +57,7 @@ export type SearchResult = {
   available: boolean;
   status: number;      // 0 available, 1 active, 2 grace
   mine: boolean;
-  priceUsd: number | null;
+  // price depends on the privacy mode picked at registration (see lib PRICE_CENTS)
 };
 
 let conn: Conn | null = null;
@@ -165,18 +165,18 @@ async function ensureWritable(onStep: (m: string) => void = () => {}): Promise<v
   lsSet(LS.accountDeployed, '1');
 }
 
-/** Search a label for availability + price. Read-only, fast. */
+/** Search a label for availability. Read-only, fast. */
 export async function search(raw: string): Promise<SearchResult> {
   await connect();
   const label = raw.normalize('NFC').trim().toLowerCase().replace(/\.tru$/, '');
   const name = normaliseName(raw);
   const len = labelLength(raw);
-  if (len < 3) return { label, name, len, tooShort: true, available: false, status: -1, mine: false, priceUsd: null };
+  if (len < 3) return { label, name, len, tooShort: true, available: false, status: -1, mine: false };
   const nh = await nameHash(raw);
   const status = Number(await sim(conn!.azns.methods.lease_status(nh)));
   const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
   const mine = !owner.isZero() && owner.equals(conn!.account);
-  return { label, name, len, tooShort: false, available: status === 0, status, mine, priceUsd: priceCentsForLength(len) / 100 };
+  return { label, name, len, tooShort: false, available: status === 0, status, mine };
 }
 
 /** Register a name (deploys the account first if needed). */
@@ -300,10 +300,12 @@ export async function myAccess(raw: string): Promise<string> {
   return addr.isZero() ? '' : addr.toString();
 }
 
-export async function renew(raw: string, years: number, onStep: (m: string) => void = () => {}) {
+/** Renew a lease. The contract prices by mode and verifies the claimed mode
+ *  against public storage, so a wrong mode here reverts (no underpaying). */
+export async function renew(raw: string, mode: ModeName, years: number, onStep: (m: string) => void = () => {}) {
   await connect(); await ensureWritable(onStep);
   onStep('Renewing…');
-  await send(conn!.azns.methods.renew(await nameHash(raw), labelLength(raw), years));
+  await send(conn!.azns.methods.renew(await nameHash(raw), MODE[mode], years));
   recordRenewal(raw.trim().toLowerCase().replace(/\.tru$/, ''), years);
 }
 

@@ -47,14 +47,15 @@ viewer, each potentially pointing somewhere different.
 ## Lease & pricing (ENS-style)
 
 Names are **rented per year, not owned forever** — same model as ENS. Annual
-price is tiered by label length (the part before `.tru`):
+price is tiered by **privacy mode** (more privacy, higher price):
 
-| Label length | Price / year |
-|--------------|--------------|
-| 3 letters    | $300         |
-| 4 letters    | $100         |
-| 5+ letters   | $10          |
-| < 3 letters  | not sold (reserved) |
+| Mode       | Price / year |
+|------------|--------------|
+| Public     | $30          |
+| Selective  | $100         |
+| Stealth    | $200         |
+
+Labels under 3 characters are not sold (reserved), enforced on-chain.
 
 How the lifecycle works:
 - **Register** charges `price × years` and sets an expiry.
@@ -65,11 +66,14 @@ How the lifecycle works:
   again (with a fresh personhood proof).
 - `lease_status(name_hash)` returns 0 available / 1 active / 2 grace.
 
-**Trustless pricing:** the contract only sees `name_hash`, never the string, so
-it can't measure length itself. `lib.ts` binds the label length *into* the hash
-(`hash(label_bytes, length)`), and `register` takes a `label_len` argument. A
-user who lied about length to underpay would produce a hash that doesn't match
-the name they want — so the tiers are tamper-proof.
+**Trustless pricing:** registration is priced by the `mode` argument — the very
+value the finalizer writes to storage, so what you pay for is what you get.
+Renewals happen in private where the stored mode can't be read, so `renew`
+takes the mode as a *claim*: the private side charges it, and the enqueued
+public step asserts it equals the stored mode — claiming a cheaper mode reverts
+the whole transaction. The minimum-length rule stays tamper-proof because
+`lib.ts` binds the label length *into* `name_hash` (`hash(label_bytes, length)`);
+lying about length produces a hash that doesn't match the name.
 
 **Fee settlement is a stub.** Prices are held in USD cents; `_charge` is where
 you wire the actual token transfer. Two honest options, documented in the code:

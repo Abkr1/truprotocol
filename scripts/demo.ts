@@ -22,7 +22,7 @@ import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { getSponsoredFPCInstance } from './sponsored_fpc.js';
 import { AZNSContract } from '../azns/target/AZNS.js';
-import { nameHash, labelLength, priceCentsForLength, MODE, ONE_YEAR_SECS, normaliseName } from './lib.js';
+import { nameHash, labelLength, priceCentsForMode, MODE, ONE_YEAR_SECS, normaliseName } from './lib.js';
 import fs from 'node:fs';
 
 const NODE_URL = process.env.AZTEC_NODE_URL ?? 'http://localhost:8080';
@@ -91,7 +91,8 @@ async function main() {
   const doRegister = async (raw: string, owner: AztecAddress, mode: number, years = 1) => {
     const nh = await nameHash(raw);
     const len = labelLength(raw);
-    console.log(`   registering "${normaliseName(raw)}" (len ${len}, $${priceCentsForLength(len) / 100}/yr)`);
+    const modeName = (Object.keys(MODE) as (keyof typeof MODE)[]).find((k) => MODE[k] === mode)!;
+    console.log(`   registering "${normaliseName(raw)}" (${modeName}, $${priceCentsForMode(modeName) / 100}/yr)`);
     if (!aliceVerified) {
       await send(
         alice,
@@ -112,15 +113,6 @@ async function main() {
   const pub = await sim(alice, azns.methods.resolve_public(trulib));
   console.log(`\n[PUBLIC]  ${normaliseName('trulib')} -> ${toAddr(pub).toString()}  (anyone can read; expect bob)`);
 
-  // --- 3. MODE_PRIVATE ---------------------------------------------------
-  const me = await doRegister('abubakar', alice, MODE.PRIVATE);
-  const meEpoch = await epochOf(me);
-  await send(alice, azns.methods.grant(me, alice, bob, inOneYear(), meEpoch));
-  const mine = await sim(alice, azns.methods.my_resolution(me, meEpoch));
-  console.log(`\n[PRIVATE] ${normaliseName('abubakar')} -> ${toAddr(mine).toString()}  (only alice; expect bob)`);
-  const leak = await sim(alice, azns.methods.resolve_public(me));
-  console.log('          public read attempt:', toAddr(leak).toString(), '(expect 0x0)');
-
   // --- 4. MODE_SELECTIVE -------------------------------------------------
   const corp = await doRegister('trulib-corp', alice, MODE.SELECTIVE);
   const corpEpoch = await epochOf(corp);
@@ -134,8 +126,8 @@ async function main() {
   console.log('  -> same name, different resolution per viewer. This is the differentiator.');
 
   // --- 5. LEASE: renew trulib +2yr, read status --------------------------
-  const trulibLen = labelLength('trulib');
-  await send(alice, azns.methods.renew(trulib, trulibLen, 2));
+  // renew now takes the name's MODE (priced per mode, verified on-chain).
+  await send(alice, azns.methods.renew(trulib, MODE.PUBLIC, 2));
   const status = await sim(alice, azns.methods.lease_status(trulib));
   console.log(`\n[LEASE]   renewed ${normaliseName('trulib')} +2yr; lease_status -> ${status} (expect 1 active)`);
 

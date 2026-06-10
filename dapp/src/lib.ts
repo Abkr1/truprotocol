@@ -35,16 +35,16 @@ export async function nameHash(raw: string): Promise<Fr> {
   return await poseidon2Hash(chunks.map((c) => new Fr(c)));
 }
 
-/** Annual price in USD cents for a label length - mirrors the contract. */
-export function priceCentsForLength(len: number): number {
-  if (len < 3) throw new Error('labels under 3 chars are not sold');
-  if (len === 3) return 30000;
-  if (len === 4) return 10000;
-  return 1000;
-}
-
 export const MODE = { PUBLIC: 0, SELECTIVE: 1, STEALTH: 2 } as const;
 export type ModeName = keyof typeof MODE;
+
+/** Annual price in USD cents per privacy mode - mirrors the contract. */
+export const PRICE_CENTS: Record<ModeName, number> = {
+  PUBLIC: 3000,      // $30/yr
+  SELECTIVE: 10000,  // $100/yr
+  STEALTH: 20000,    // $200/yr
+};
+export const priceUsdForMode = (mode: ModeName): number => PRICE_CENTS[mode] / 100;
 
 export const ONE_YEAR_SECS = 365n * 24n * 60n * 60n;
 export const nowSecs = () => BigInt(Math.floor(Date.now() / 1000));

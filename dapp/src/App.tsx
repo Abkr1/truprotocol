@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as azns from './aztec';
 import type { SearchResult } from './aztec';
-import type { ModeName } from './lib';
+import { priceUsdForMode, type ModeName } from './lib';
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
@@ -208,7 +208,8 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
     );
   }
 
-  const total = (result.priceUsd ?? 0) * years;
+  const priceUsd = priceUsdForMode(mode);
+  const total = priceUsd * years;
   return (
     <div className="result-card">
       <div className="rc-head">
@@ -217,7 +218,7 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
       </div>
 
       <div className="price-row">
-        <div><span className="price">${result.priceUsd}</span><span className="per"> / year</span></div>
+        <div><span className="price">${priceUsd}</span><span className="per"> / year · {mode.toLowerCase()}</span></div>
         <div className="years">
           <span>Register for</span>
           <button type="button" className="step-btn" disabled={busy || years <= 1} onClick={() => setYears((y) => Math.max(1, y - 1))}>−</button>
@@ -232,7 +233,8 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
             className={`mode ${mode === m.key ? 'on' : ''}`}
             disabled={busy}
             onClick={() => setMode(m.key)}>
-            <b>{m.label}</b><span>{m.hint}</span>
+            <b>{m.label}<em className="mode-price">${priceUsdForMode(m.key)}/yr</em></b>
+            <span>{m.hint}</span>
           </button>
         ))}
       </div>
@@ -285,7 +287,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
   }
   async function renew() {
     setBusy(true); setStep('');
-    try { await azns.renew(label, 1, setStep); setStep('Renewed +1 year.'); refresh(); onChanged(); }
+    try { await azns.renew(label, mode ?? 'PUBLIC', 1, setStep); setStep('Renewed +1 year.'); refresh(); onChanged(); }
     catch (e: any) { setStep(`Couldn't renew: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
@@ -346,7 +348,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
               <EthRecordRow label={label} />
               <div className="row">
                 <button className="ghost" onClick={lookup} disabled={busy}>Look up Aztec</button>
-                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(mode ?? 'PUBLIC')})</button>
               </div>
             </>
           ) : mode === 'STEALTH' ? (
@@ -362,7 +364,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
               </div>
               <div className="row">
                 {!keyPublished && <button onClick={publishStealth} disabled={busy}>Publish stealth key</button>}
-                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(mode ?? 'PUBLIC')})</button>
               </div>
             </>
           ) : (
@@ -380,7 +382,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
                 </div>
               </label>
               <div className="row">
-                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(mode ?? 'PUBLIC')})</button>
               </div>
             </>
           )}

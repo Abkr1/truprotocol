@@ -35,10 +35,18 @@ async function main() {
   const addr = azns.address.toString();
   console.log(`\nAZNS deployed on testnet at: ${addr}`);
 
-  // Wire the dApp to this deployment.
-  const env = `AZTEC_NODE_URL=${NODE_URL}\nAZNS_ADDRESS=${addr}\n`;
+  // Wire the dApp to this deployment. MERGE into dapp/.env: replace only our
+  // two keys and keep everything else (e.g. the DAPP_WALLET_* house wallet).
+  let env = '';
+  try { env = fs.readFileSync('dapp/.env', 'utf-8'); } catch { /* fresh file */ }
+  const setVar = (src: string, key: string, val: string) => {
+    const line = `${key}=${val}`;
+    return new RegExp(`^${key}=`, 'm').test(src) ? src.replace(new RegExp(`^${key}=.*$`, 'm'), line) : src + (src.endsWith('\n') || src === '' ? '' : '\n') + line + '\n';
+  };
+  env = setVar(env, 'AZTEC_NODE_URL', NODE_URL);
+  env = setVar(env, 'AZNS_ADDRESS', addr);
   fs.writeFileSync('dapp/.env', env);
-  console.log('\nwrote dapp/.env:\n' + env);
+  console.log('\nwrote dapp/.env (merged):\n' + env);
   console.log('Run the dApp against testnet:  cd dapp && npm run dev');
 }
 
