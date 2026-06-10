@@ -168,24 +168,43 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
   } else {
     await send(c.azns.methods.register(nh, len, c.account, years, modeVal));
   }
-  recordName(raw, mode);
+  recordName(raw, mode, years);
 }
 
 // ---- "My names": tracked client-side (the chain stores hashes, not labels) ----
+// The chain stores only name *hashes*, so a wallet cannot enumerate the labels
+// it owns. We remember them per-browser in localStorage with enough metadata to
+// show an expiry estimate. On-chain lease_status + owner_of stay the source of
+// truth for status and ownership (the estimate is only for display).
 const LS_NAMES = 'azns.mynames';
-export type MyName = { label: string; mode: ModeName };
+export type MyName = { label: string; mode: ModeName; registeredAt?: number; years?: number };
 
 export function myNames(): MyName[] {
-  try { return JSON.parse(lsGet(LS_NAMES) || '[]'); } catch { return []; }
+  try {
+    const list = JSON.parse(lsGet(LS_NAMES) || '[]');
+    return Array.isArray(list) ? list.filter((n) => n && typeof n.label === 'string') : [];
+  } catch { return []; }
 }
-function recordName(raw: string, mode: ModeName) {
+function saveNames(list: MyName[]) { lsSet(LS_NAMES, JSON.stringify(list)); }
+
+function recordName(raw: string, mode: ModeName, years = 1) {
   const label = raw.trim().toLowerCase().replace(/\.tru$/, '');
   const list = myNames().filter((n) => n.label !== label);
-  list.unshift({ label, mode });
-  lsSet(LS_NAMES, JSON.stringify(list));
+  list.unshift({ label, mode, registeredAt: Number(nowSecs()), years });
+  saveNames(list);
 }
 export function forgetName(label: string) {
-  lsSet(LS_NAMES, JSON.stringify(myNames().filter((n) => n.label !== label)));
+  saveNames(myNames().filter((n) => n.label !== label));
+}
+/** Bump the stored lease length after a local renewal (keeps the expiry estimate fresh). */
+export function recordRenewal(label: string, addYears = 1) {
+  const list = myNames();
+  const n = list.find((x) => x.label === label);
+  if (n) { n.years = (n.years ?? 1) + addYears; saveNames(list); }
+}
+/** Estimated expiry (unix seconds) from stored metadata; null if unknown. */
+export function estimatedExpiry(n: MyName): number | null {
+  return n.registeredAt ? n.registeredAt + (n.years ?? 1) * Number(ONE_YEAR_SECS) : null;
 }
 /** On-chain status for a name: 0 available, 1 active, 2 grace; + is it mine. */
 export async function nameStatus(label: string): Promise<{ status: number; mine: boolean }> {
@@ -211,6 +230,7 @@ export async function renew(raw: string, years: number, onStep: (m: string) => v
   await connect(); await ensureWritable(onStep);
   onStep('Renewing…');
   await send(conn!.azns.methods.renew(await nameHash(raw), labelLength(raw), years));
+  recordRenewal(raw.trim().toLowerCase().replace(/\.tru$/, ''), years);
 }
 
 // =============================================================================

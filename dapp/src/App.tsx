@@ -5,6 +5,18 @@ import type { ModeName } from './lib';
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
+const fmtDate = (secs: number) =>
+  new Date(secs * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+const fmtRel = (secs: number) => {
+  const days = Math.round((secs * 1000 - Date.now()) / 86400000);
+  if (days < 0) return `${-days}d ago`;
+  if (days === 0) return 'today';
+  if (days < 45) return `in ${days}d`;
+  if (days < 365) return `in ${Math.round(days / 30)} months`;
+  const yrs = days / 365;
+  return `in ${yrs.toFixed(yrs < 2 ? 1 : 0)}y`;
+};
+
 type Tab = 'search' | 'mine';
 
 export default function App() {
@@ -107,7 +119,9 @@ function Dashboard({ setAccount }: { setAccount: (a: string | null) => void }) {
       {!ready && <p className="muted small">connecting…</p>}
       {names.map((n) => (
         <OwnedCard key={n.label} label={n.label} name={`${n.label}.tru`} mode={n.mode}
-          onChanged={() => {}} onForget={() => { azns.forgetName(n.label); setNames(azns.myNames()); }} />
+          expiry={azns.estimatedExpiry(n)}
+          onChanged={() => setNames(azns.myNames())}
+          onForget={() => { azns.forgetName(n.label); setNames(azns.myNames()); }} />
       ))}
     </div>
   );
@@ -211,19 +225,24 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
 }
 
 const STATUS_LABEL = ['Available', 'Active', 'In grace'];
-function OwnedCard({ name, label, justClaimed, mode, onChanged, onForget }: { name: string; label: string; justClaimed?: boolean; mode?: ModeName; onChanged: () => void; onForget?: () => void }) {
+function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget }: { name: string; label: string; justClaimed?: boolean; mode?: ModeName; expiry?: number | null; onChanged: () => void; onForget?: () => void }) {
   const [target, setTarget] = useState('');
   const [points, setPoints] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState('');
-  const [status, setStatus] = useState<number | null>(null);
+  const [info, setInfo] = useState<{ status: number; mine: boolean } | null>(null);
   const isPublic = mode === undefined || mode === 'PUBLIC';
 
-  useEffect(() => { azns.nameStatus(label).then((s) => setStatus(s.status)).catch(() => {}); }, [label]);
+  const refresh = () => azns.nameStatus(label).then(setInfo).catch(() => {});
+  useEffect(() => { refresh(); }, [label]);
+
+  const status = info?.status ?? null;
+  const owned = justClaimed === true || info?.mine === true;
+  const checkedNotMine = info !== null && !owned;
 
   async function save() {
     setBusy(true); setStep('');
-    try { await azns.setPublicTarget(label, target.trim(), setStep); setPoints(target.trim()); setStep('Saved.'); }
+    try { await azns.setPublicTarget(label, target.trim(), setStep); setPoints(target.trim()); setStep('Saved.'); refresh(); onChanged(); }
     catch (e: any) { setStep(`Couldn't save: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
@@ -235,13 +254,13 @@ function OwnedCard({ name, label, justClaimed, mode, onChanged, onForget }: { na
   }
   async function renew() {
     setBusy(true); setStep('');
-    try { await azns.renew(label, 1, setStep); setStep('Renewed +1 year.'); onChanged(); }
+    try { await azns.renew(label, 1, setStep); setStep('Renewed +1 year.'); refresh(); onChanged(); }
     catch (e: any) { setStep(`Couldn't renew: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
   async function publishStealth() {
     setBusy(true); setStep('');
-    try { await azns.publishStealth(label, setStep); }
+    try { await azns.publishStealth(label, setStep); refresh(); }
     catch (e: any) { setStep(`Couldn't publish: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
@@ -253,35 +272,51 @@ function OwnedCard({ name, label, justClaimed, mode, onChanged, onForget }: { na
         <span className="rc-tags">
           {status !== null && <span className={`tag ${status === 1 ? 'avail' : 'taken'}`}>{STATUS_LABEL[status] ?? '—'}</span>}
           <span className="mode-chip">{(mode ?? 'PUBLIC').toLowerCase()}</span>
-          <span className="tag mine">{justClaimed ? '🎉 Yours' : 'Yours'}</span>
+          {owned && <span className="tag mine">{justClaimed ? '🎉 Yours' : 'Yours'}</span>}
         </span>
       </div>
 
-      {isPublic ? (
-        <>
-          <p className="muted small">Points to <b>you</b> by default — repoint it below anytime.</p>
-          <label className="field">Aztec address it points to
-            <div className="row">
-              <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="0x… Aztec address (defaults to you)" disabled={busy} />
-              <button onClick={save} disabled={busy || !target.trim()}>Save</button>
-            </div>
-          </label>
-          {points && <p className="result">Aztec <span className="mono">{points}</span></p>}
-          <EthRecordRow label={label} />
-          <div className="row">
-            <button className="ghost" onClick={lookup} disabled={busy}>Look up Aztec</button>
-            <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
-          </div>
-        </>
+      {checkedNotMine ? (
+        <div className="notice warn">
+          {status === 0
+            ? <>This name has <b>expired</b> and is available to register again from the Search tab.</>
+            : <>This name is registered to a <b>different account</b> (not this browser's wallet).</>}
+        </div>
       ) : (
         <>
-          {mode === 'STEALTH'
-            ? <p className="muted">This is a <b>stealth</b> name — publish a stealth key and anyone can pay it, with every payment landing on a fresh, unlinkable one-time address. (Per-payment derivation + scanning/sweep is experimental; see docs/stealth-mode.md.)</p>
-            : <p className="muted">This is a <b>selective</b> name — its resolution is private to the specific viewers you grant.</p>}
-          <div className="row">
-            {mode === 'STEALTH' && <button onClick={publishStealth} disabled={busy}>Publish stealth key</button>}
-            <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
-          </div>
+          {owned && (
+            (status === 2)
+              ? <p className="grace">⚠ Expired — in its grace period. Renew now to keep it.</p>
+              : (expiry ? <p className="muted small">Expires <b>{fmtDate(expiry)}</b> · {fmtRel(expiry)}</p> : null)
+          )}
+
+          {isPublic ? (
+            <>
+              <p className="muted small">Points to <b>you</b> by default — repoint it below anytime.</p>
+              <label className="field">Aztec address it points to
+                <div className="row">
+                  <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="0x… Aztec address (defaults to you)" disabled={busy} />
+                  <button onClick={save} disabled={busy || !target.trim()}>Save</button>
+                </div>
+              </label>
+              {points && <p className="result">Aztec <span className="mono">{points}</span></p>}
+              <EthRecordRow label={label} />
+              <div className="row">
+                <button className="ghost" onClick={lookup} disabled={busy}>Look up Aztec</button>
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
+              </div>
+            </>
+          ) : (
+            <>
+              {mode === 'STEALTH'
+                ? <p className="muted">This is a <b>stealth</b> name — publish a stealth key and anyone can pay it, with every payment landing on a fresh, unlinkable one-time address. (Per-payment derivation + scanning/sweep is experimental; see docs/stealth-mode.md.)</p>
+                : <p className="muted">This is a <b>selective</b> name — its resolution is private to the specific viewers you grant.</p>}
+              <div className="row">
+                {mode === 'STEALTH' && <button onClick={publishStealth} disabled={busy}>Publish stealth key</button>}
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
+              </div>
+            </>
+          )}
         </>
       )}
       {step && <p className="muted small">{step}</p>}
