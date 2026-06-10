@@ -34,6 +34,11 @@ export default defineConfig(({ mode }) => {
       'process.env.AZTEC_NODE_URL': JSON.stringify(env.AZTEC_NODE_URL ?? ''),
       'process.env.AZNS_ADDRESS': JSON.stringify(env.AZNS_ADDRESS ?? ''),
       'process.env.PAY_TOKEN_ADDRESS': JSON.stringify(env.PAY_TOKEN_ADDRESS ?? ''),
+      // Optional demo "house wallet": a funded account the dApp uses so it can
+      // pay testnet fees from native fee juice (the shared sponsored FPC is
+      // drained). Keep these in dapp/.env (gitignored) — never commit secrets.
+      'process.env.DAPP_WALLET_SECRET': JSON.stringify(env.DAPP_WALLET_SECRET ?? ''),
+      'process.env.DAPP_WALLET_SALT': JSON.stringify(env.DAPP_WALLET_SALT ?? ''),
       // bb.js loads its WASM from this path; the -threads variant is inferred.
       // We copy the file into public/assets via sync.mjs.
       'process.env.BB_WASM_PATH': JSON.stringify('/assets/barretenberg.wasm.gz'),

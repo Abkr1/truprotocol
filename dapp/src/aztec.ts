@@ -12,6 +12,8 @@ import { NO_FROM } from '@aztec/aztec.js/account';
 import { Fr } from '@aztec/aztec.js/fields';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { getContractInstanceFromInstantiationParams } from '@aztec/aztec.js/contracts';
+import { createAztecNodeClient } from '@aztec/aztec.js/node';
+import { getFeeJuiceBalance } from '@aztec/aztec.js/utils';
 import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from './contracts/AZNS';
@@ -30,6 +32,7 @@ const LS = {
   salt: 'azns.salt',
   accountDeployed: 'azns.accountDeployed',
   aznsAddress: 'azns.aznsAddress',
+  account: 'azns.account',
 };
 
 type Zkp = { vkAsFields: string[]; vkHash: string; proofAsFields: string[]; publicInputs: string[] };
@@ -39,7 +42,9 @@ type Conn = {
   wallet: EmbeddedWallet;
   account: AztecAddress;
   manager: Manager | null;
-  fee: { paymentMethod: SponsoredFeePaymentMethod };
+  fee: any;          // {} = native fee juice; else { paymentMethod: SponsoredFeePaymentMethod }
+  feeLabel: string;
+  funded: boolean;   // account already holds native fee juice (=> already deployed)
   azns: AZNSContract;
   zkp: Zkp;
 };
@@ -83,19 +88,44 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
 
     const fpc = await getContractInstanceFromInstantiationParams(SponsoredFPCContract.artifact, { salt: new Fr(0n) });
     await wallet.registerContract(fpc, SponsoredFPCContract.artifact);
-    const fee = { paymentMethod: new SponsoredFeePaymentMethod(fpc.address) };
+    const node = createAztecNodeClient(NODE_URL);
 
-    let secret = lsGet(LS.secret);
-    let salt = lsGet(LS.salt);
-    if (!secret || !salt) {
-      secret = Fr.random().toString();
-      salt = Fr.random().toString();
-      lsSet(LS.secret, secret); lsSet(LS.salt, salt);
+    // Wallet keys: a funded "house wallet" from env (lets the dApp pay testnet
+    // fees from native fee juice, since the shared sponsored FPC is drained),
+    // else a per-browser random account.
+    const houseSecret = process.env.DAPP_WALLET_SECRET;
+    const houseSalt = process.env.DAPP_WALLET_SALT;
+    let secret: string | null, salt: string | null;
+    if (houseSecret && houseSecret.length > 0 && houseSalt && houseSalt.length > 0) {
+      secret = houseSecret; salt = houseSalt;
+    } else {
+      secret = lsGet(LS.secret); salt = lsGet(LS.salt);
+      if (!secret || !salt) {
+        secret = Fr.random().toString(); salt = Fr.random().toString();
+        lsSet(LS.secret, secret); lsSet(LS.salt, salt);
+      }
     }
+
     let manager: Manager | null = null;
     try { manager = await wallet.createSchnorrAccount(Fr.fromString(secret), Fr.fromString(salt)); }
     catch { manager = null; } // already registered in this PXE
-    const account = (await wallet.getAccounts())[0].item;
+
+    // Select THIS account specifically (getAccounts()[0] could be a stale one
+    // left in the PXE from an earlier session / different keys).
+    let account: AztecAddress;
+    if (manager) { account = (manager as any).address; lsSet(LS.account, account.toString()); }
+    else {
+      const accts = await wallet.getAccounts();
+      const want = lsGet(LS.account);
+      account = (want ? accts.find((a) => a.item.toString() === want)?.item : undefined) ?? accts[0].item;
+    }
+
+    // Pay like the deployer: native fee juice when this account is funded, else
+    // fall back to the shared sponsored FPC. A funded account is already on-chain.
+    let funded = false;
+    try { funded = (await getFeeJuiceBalance(account, node as any)) > 0n; } catch { funded = false; }
+    const fee = funded ? {} : { paymentMethod: new SponsoredFeePaymentMethod(fpc.address) };
+    const feeLabel = funded ? 'native fee juice' : 'sponsored FPC';
 
     // A configured deployment (dapp/.env) wins over any locally-deployed address
     // left in localStorage from earlier dev sessions.
@@ -105,14 +135,13 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
     // Register the already-deployed AZNS instance with this PXE so we can both
     // read AND send to it (a fresh PXE doesn't know contracts it didn't deploy).
     try {
-      const { createAztecNodeClient } = await import('@aztec/aztec.js/node');
-      const inst = await createAztecNodeClient(NODE_URL).getContract(AztecAddress.fromString(known));
+      const inst = await node.getContract(AztecAddress.fromString(known));
       if (inst) await wallet.registerContract(inst, AZNSContract.artifact);
     } catch { /* may already be registered, or sim-only works */ }
     const azns = await AZNSContract.at(AztecAddress.fromString(known), wallet);
 
     const zkp = await loadZkp();
-    conn = { wallet, account, manager, fee, azns, zkp };
+    conn = { wallet, account, manager, fee, feeLabel, funded, azns, zkp };
     return conn;
   })();
   try { return await connecting; } finally { connecting = null; }
@@ -124,6 +153,7 @@ const send = async (interaction: any) => { await interaction.send({ from: conn!.
 /** Deploy the user's account on first write (sponsored). */
 async function ensureWritable(onStep: (m: string) => void = () => {}): Promise<void> {
   const c = conn!;
+  if (c.funded) { lsSet(LS.accountDeployed, '1'); return; } // funded => already on-chain
   if (lsGet(LS.accountDeployed)) return;
   onStep('Setting up your wallet (one-time)…');
   if (!c.manager) c.manager = await c.wallet.createSchnorrAccount(Fr.fromString(lsGet(LS.secret)!), Fr.fromString(lsGet(LS.salt)!));
@@ -359,6 +389,10 @@ export async function hasStealthKey(raw: string): Promise<boolean> {
 }
 
 export function accountAddress(): string | null { return conn ? conn.account.toString() : null; }
+/** How testnet fees are being paid once connected: native fee juice vs sponsored FPC. */
+export function feeMode(): { funded: boolean; label: string } | null {
+  return conn ? { funded: conn.funded, label: conn.feeLabel } : null;
+}
 export const isLocal = IS_LOCAL;
 
 export async function hardReset(): Promise<void> {
