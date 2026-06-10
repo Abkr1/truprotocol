@@ -1,0 +1,29 @@
+{
+  "name": "azns-scripts",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "codegen": "aztec codegen ./azns/target -o ./azns/target",
+    "genproof": "node --loader ts-node/esm scripts/gen_proof.ts",
+    "demo": "node --loader ts-node/esm scripts/demo.ts",
+    "deploy:testnet": "node --loader ts-node/esm scripts/deploy_testnet.ts",
+    "register:testnet": "node --loader ts-node/esm scripts/register_testnet.ts",
+    "stealth:demo": "node --loader ts-node/esm scripts/stealth_demo.ts",
+    "pay:demo": "node --loader ts-node/esm scripts/pay_demo.ts",
+    "reg:verify": "node --loader ts-node/esm scripts/reg_verify.ts"
+  },
+  "dependencies": {
+    "@aztec/accounts": "4.3.1",
+    "@aztec/aztec.js": "4.3.1",
+    "@aztec/bb.js": "4.3.1",
+    "@aztec/foundation": "4.3.1",
+    "@aztec/noir-contracts.js": "4.3.1",
+    "@aztec/noir-noir_js": "4.3.1",
+    "@aztec/wallets": "4.3.1"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

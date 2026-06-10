@@ -1,0 +1,31 @@
+{
+  "name": "azns-dapp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "sync": "node sync.mjs",
+    "predev": "node sync.mjs",
+    "prebuild": "node sync.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@aztec/accounts": "4.3.1",
+    "@aztec/aztec.js": "4.3.1",
+    "@aztec/foundation": "4.3.1",
+    "@aztec/noir-contracts.js": "4.3.1",
+    "@aztec/wallets": "4.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react-swc": "^3.7.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-node-polyfills": "^0.22.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dapp",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "setInterval(()=>{}, 1000000000)"],
+      "port": 5173
+    }
+  ]
+}

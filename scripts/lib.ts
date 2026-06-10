@@ -1,0 +1,77 @@
+import { Fr } from '@aztec/aztec.js/fields';
+import { poseidon2Hash } from '@aztec/foundation/crypto/poseidon';
+
+/**
+ * Normalise a label the SAME way every client must, before hashing.
+ * Mismatched normalisation = different name_hash = silent bugs.
+ *  - lowercase
+ *  - Unicode NFC
+ *  - trim whitespace
+ *  - append the ".tru" namespace if missing
+ *
+ * NAMESPACE: ".tru" — Trulib-branded. The suffix lives ONLY here (client-side),
+ * folded into the hash; the contract never sees it. It is NOT enforced on-chain,
+ * so this function must be the single shared source of truth across every
+ * client (mobile, web, backend) or names will silently diverge. Changing the
+ * suffix changes every resulting name_hash — treat it as immutable post-launch.
+ */
+export function normaliseName(raw: string): string {
+  let s = raw.normalize('NFC').trim().toLowerCase();
+  if (!s.endsWith('.tru')) s = `${s}.tru`;
+  return s;
+}
+
+/**
+ * Deterministic field hash of a normalised name. Only this hash ever
+ * touches the chain — the cleartext label "abubakar.tru" never does.
+ *
+ * PRICING SECURITY: the label's character length is bound INTO the hash. The
+ * contract charges by length (3 / 4 / 5+ letters) but only ever sees the hash,
+ * so if a user declared a cheaper length than their real name, the hash they'd
+ * have to submit wouldn't match the name they want. Binding length here is what
+ * makes the pricing tiers tamper-proof. The contract's `label_len` argument
+ * MUST equal the value used here, or registration targets a different name.
+ *
+ * Length counts the LABEL only (the part before ".tru"), in Unicode code
+ * points — matching how a human reads the name's length.
+ */
+export function labelLength(raw: string): number {
+  const norm = normaliseName(raw);
+  const label = norm.endsWith('.tru') ? norm.slice(0, -4) : norm;
+  return [...label].length; // code points, not UTF-16 units
+}
+
+export async function nameHash(raw: string): Promise<Fr> {
+  const norm = normaliseName(raw);
+  const len = labelLength(raw);
+  // Encode UTF-8 bytes into field-sized chunks, then poseidon-hash WITH length.
+  const bytes = new TextEncoder().encode(norm);
+  const chunks: bigint[] = [];
+  for (let i = 0; i < bytes.length; i += 31) {
+    const slice = bytes.slice(i, i + 31);
+    let acc = 0n;
+    for (const b of slice) acc = (acc << 8n) + BigInt(b);
+    chunks.push(acc);
+  }
+  if (chunks.length === 0) chunks.push(0n);
+  // Append length as a final field so the hash commits to it.
+  chunks.push(BigInt(len));
+  const hashed = await poseidon2Hash(chunks.map((c) => new Fr(c)));
+  return hashed;
+}
+
+/** Annual price in USD cents for a label length — mirrors the contract. */
+export function priceCentsForLength(len: number): number {
+  if (len < 3) throw new Error('labels under 3 chars are not sold');
+  if (len === 3) return 30000; // $300
+  if (len === 4) return 10000; // $100
+  return 1000; // $10 for 5+
+}
+
+export const MODE = {
+  PUBLIC: 0,
+  SELECTIVE: 1,
+  STEALTH: 2,
+} as const;
+
+export const ONE_YEAR_SECS = 365n * 24n * 60n * 60n;
