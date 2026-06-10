@@ -235,7 +235,11 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 /* ---- feature strip (empty state) -------------------------------------- */
 .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 760px; margin: 40px auto 0; }
 .feature { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: var(--shadow-sm); }
-.feature .fi { font-size: 24px; margin-bottom: 8px; }
+.feature .fi {
+  width: 40px; height: 40px; margin-bottom: 10px; border-radius: 13px;
+  background: var(--green-50); border: 1px solid var(--green-100); color: var(--green-700);
+  display: grid; place-items: center;
+}
 .feature h3 { margin: 0 0 4px; font-size: 14.5px; color: var(--ink); }
 .feature p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 
@@ -270,8 +274,27 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 .dash-title { font-size: 20px; color: var(--ink); margin: 0 0 16px; }
 .dash .result-card { margin-top: 0; margin-bottom: 16px; }
 .empty { max-width: 520px; margin: 56px auto 0; text-align: center; }
-.empty-emoji { font-size: 48px; }
-.empty h2 { margin: 12px 0 6px; color: var(--ink); }
+.empty-icon {
+  width: 72px; height: 72px; margin: 0 auto; border-radius: 22px;
+  background: var(--green-50); border: 1px solid var(--green-100); color: var(--green-700);
+  display: grid; place-items: center;
+}
+.empty h2 { margin: 16px 0 6px; color: var(--ink); }
+
+/* ---- icons + mode panels ----------------------------------------------- */
+.ic { vertical-align: -3px; flex: none; }
+.tag.mine { display: inline-flex; align-items: center; gap: 5px; }
+.grace { display: flex; align-items: center; gap: 8px; }
+.pay-head b { display: inline-flex; align-items: center; gap: 7px; }
+.keyline {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 0 14px; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: var(--green-50); border: 1px solid var(--green-100);
+  color: var(--green-700); font-size: 13.5px; font-weight: 500;
+}
+.keyline b { color: var(--green-700); }
+.accessbox { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
+.accessbox .pay-head { align-items: center; }
 
 @media (max-width: 620px) {
   .modes, .features { grid-template-columns: 1fr; }

@@ -250,10 +250,54 @@ export async function resolvePublic(raw: string): Promise<string> {
   return toAddr(await sim(conn!.azns.methods.resolve_public(await nameHash(raw)))).toString();
 }
 
+/** Parse a user-supplied Aztec address with a friendly error. */
+function parseAddress(input: string, what = 'address'): AztecAddress {
+  const v = input.trim();
+  if (!/^0x[0-9a-fA-F]{1,64}$/.test(v)) throw new Error(`That doesn't look like a valid Aztec ${what} (expected 0x… hex).`);
+  try { return AztecAddress.fromString(v); }
+  catch { throw new Error(`That ${what} isn't a valid Aztec address.`); }
+}
+
 export async function setPublicTarget(raw: string, target: string, onStep: (m: string) => void = () => {}) {
   await connect(); await ensureWritable(onStep);
+  const to = parseAddress(target, 'target address');
   onStep('Saving…');
-  await send(conn!.azns.methods.set_public_target(await nameHash(raw), AztecAddress.fromString(target)));
+  await send(conn!.azns.methods.set_public_target(await nameHash(raw), to));
+}
+
+// ---- Selective mode: per-viewer grants ---------------------------------------
+// The owner privately mints a resolution capability to a specific viewer; only
+// that viewer can decrypt it. Nothing about who can resolve what appears on-chain.
+
+/** Grant a viewer the (private) ability to resolve this selective name to `target`. */
+export async function grantAccess(raw: string, viewer: string, target: string, onStep: (m: string) => void = () => {}) {
+  await connect(); await ensureWritable(onStep);
+  const nh = await nameHash(raw);
+  const viewerAddr = parseAddress(viewer, 'viewer address');
+  const targetAddr = parseAddress(target, 'target address');
+  onStep('Reading the name epoch…');
+  const epoch = BigInt((await sim(conn!.azns.methods.current_epoch(nh))).toString());
+  const expiry = nowSecs() + ONE_YEAR_SECS; // capability valid for a year
+  onStep('Granting access (private)…');
+  await send(conn!.azns.methods.grant(nh, viewerAddr, targetAddr, expiry, epoch));
+}
+
+/** Revoke a viewer's resolution capability for this selective name. */
+export async function revokeAccess(raw: string, viewer: string, onStep: (m: string) => void = () => {}) {
+  await connect(); await ensureWritable(onStep);
+  const viewerAddr = parseAddress(viewer, 'viewer address');
+  onStep('Revoking access (private)…');
+  await send(conn!.azns.methods.revoke(await nameHash(raw), viewerAddr));
+}
+
+/** What a selective name resolves to FOR ME (the connected viewer). '' if no access. */
+export async function myAccess(raw: string): Promise<string> {
+  await connect();
+  const nh = await nameHash(raw);
+  const epoch = BigInt((await sim(conn!.azns.methods.current_epoch(nh))).toString());
+  const out = await sim(conn!.azns.methods.my_resolution(nh, epoch));
+  const addr = toAddr(out);
+  return addr.isZero() ? '' : addr.toString();
 }
 
 export async function renew(raw: string, years: number, onStep: (m: string) => void = () => {}) {
@@ -349,17 +393,33 @@ export async function tokenBalance(): Promise<bigint | null> {
   return BigInt((await sim(token.methods.balance_of_private(conn!.account))).toString());
 }
 
-/** Pay a public name with a PRIVATE transfer only (no public path => explorer-invisible). */
+/** How a name can be paid: resolve public target, else stealth (owner), else not payable. */
+export async function payTarget(raw: string): Promise<{ to: AztecAddress; kind: 'public' | 'stealth' } | null> {
+  await connect();
+  const nh = await nameHash(raw);
+  const pub = toAddr(await sim(conn!.azns.methods.resolve_public(nh)));
+  if (!pub.isZero()) return { to: pub, kind: 'public' };
+  const key: any = await sim(conn!.azns.methods.resolve_stealth(nh));
+  const hasKey = BigInt((key.spend_x?.toString?.() ?? key.spend_x) || 0) !== 0n;
+  if (hasKey) {
+    const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
+    if (!owner.isZero()) return { to: owner, kind: 'stealth' };
+  }
+  return null;
+}
+
+/** Pay a name with a PRIVATE transfer only (no public path => explorer-invisible). */
 export async function payPrivately(raw: string, amount: bigint, onStep: (m: string) => void = () => {}) {
+  if (amount <= 0n) throw new Error('Enter an amount greater than zero.');
   await connect(); await ensureWritable(onStep);
   const addr = tokenAddress();
-  if (!addr) throw new Error('No token yet — click “Get test tokens” first.');
+  if (!addr) throw new Error('No token yet — click "Get test tokens" first.');
   onStep('Resolving name…');
-  const to = toAddr(await sim(conn!.azns.methods.resolve_public(await nameHash(raw))));
-  if (to.isZero()) throw new Error('This name has no public address to pay.');
+  const dest = await payTarget(raw);
+  if (!dest) throw new Error('This name does not accept direct payments (selective names resolve per-viewer).');
   onStep('Sending a private transfer…');
   const token = await tokenAt(addr);
-  await send(token.methods.transfer(to, amount)); // PRIVATE transfer only
+  await send(token.methods.transfer(dest.to, amount)); // PRIVATE transfer only
   onStep('Paid privately.');
 }
 

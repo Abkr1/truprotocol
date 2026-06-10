@@ -5,6 +5,27 @@ import type { ModeName } from './lib';
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
+// ---- inline icon set (no emoji) ---------------------------------------------
+const I = {
+  globe: <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 0c2.5 2.6 4 6.2 4 10s-1.5 7.4-4 10c-2.5-2.6-4-6.2-4-10s1.5-7.4 4-10ZM2.5 9h19M2.5 15h19" />,
+  eye: <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />,
+  shield: <path d="M12 2 4 5.5V11c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5.5L12 2Z" />,
+  card: <path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Zm4 5h4M7 15h7" />,
+  check: <path d="M4.5 12.5 10 18 19.5 6.5" />,
+  send: <path d="M21 3 10.5 13.5M21 3l-7 18-3.5-7.5L3 10l18-7Z" />,
+  warn: <path d="M12 3 2.5 20h19L12 3Zm0 7v4m0 3v.5" />,
+  key: <path d="M15 9a6 6 0 1 0-5.7 6L11 13.3V11h2.3l1-1H15ZM9 15l-6 6m3-3 2 2" />,
+  user: <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-8 9a8 8 0 0 1 16 0" />,
+};
+function Icon({ d, size = 18 }: { d: JSX.Element; size?: number }) {
+  return (
+    <svg className="ic" width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {d}
+    </svg>
+  );
+}
+
 const fmtDate = (secs: number) =>
   new Date(secs * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 const fmtRel = (secs: number) => {
@@ -82,9 +103,9 @@ function SearchTab({ setAccount, onRegistered }: { setAccount: (a: string | null
       {result && <ResultCard result={result} onChanged={() => doSearch(query)} setAccount={setAccount} onRegistered={onRegistered} />}
       {!result && !error && (
         <div className="features">
-          <Feature icon="🌍" title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Ethereum, and more." />
-          <Feature icon="🎭" title="Selective & stealth" text="Show a different address per viewer, or accept private payments to a hidden address." />
-          <Feature icon="🧍" title="One human, one name" text="Sybil-resistant: registration is gated by a proof of personhood." />
+          <Feature icon={I.globe} title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Ethereum, and more." />
+          <Feature icon={I.eye} title="Selective & stealth" text="Show a different address per viewer, or accept private payments to a hidden address." />
+          <Feature icon={I.user} title="One human, one name" text="Sybil-resistant: registration is gated by a proof of personhood." />
         </div>
       )}
     </>
@@ -106,7 +127,7 @@ function Dashboard({ setAccount }: { setAccount: (a: string | null) => void }) {
   if (names.length === 0) {
     return (
       <div className="empty">
-        <div className="empty-emoji">🪪</div>
+        <div className="empty-icon"><Icon d={I.card} size={40} /></div>
         <h2>No names yet</h2>
         <p className="muted">Register a name from the Search tab and it'll show up here to manage.</p>
       </div>
@@ -127,10 +148,10 @@ function Dashboard({ setAccount }: { setAccount: (a: string | null) => void }) {
   );
 }
 
-function Feature({ icon, title, text }: { icon: string; title: string; text: string }) {
+function Feature({ icon, title, text }: { icon: JSX.Element; title: string; text: string }) {
   return (
     <div className="feature">
-      <div className="fi">{icon}</div>
+      <div className="fi"><Icon d={icon} size={22} /></div>
       <div><h3>{title}</h3><p>{text}</p></div>
     </div>
   );
@@ -182,6 +203,7 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
         </div>
         <p className="muted">{result.status === 2 ? 'In its grace period — the current owner can still renew it.' : 'This name is already registered.'}</p>
         <PayBox label={result.label} name={result.name} />
+        <AccessCheck label={result.label} name={result.name} />
       </div>
     );
   }
@@ -235,8 +257,15 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
   const [info, setInfo] = useState<{ status: number; mine: boolean } | null>(null);
   const isPublic = mode === undefined || mode === 'PUBLIC';
 
+  const [viewer, setViewer] = useState('');
+  const [grantTarget, setGrantTarget] = useState('');
+  const [keyPublished, setKeyPublished] = useState<boolean | null>(null);
+
   const refresh = () => azns.nameStatus(label).then(setInfo).catch(() => {});
   useEffect(() => { refresh(); }, [label]);
+  useEffect(() => {
+    if (mode === 'STEALTH') azns.hasStealthKey(label).then(setKeyPublished).catch(() => {});
+  }, [label, mode]);
 
   const status = info?.status ?? null;
   const owned = justClaimed === true || info?.mine === true;
@@ -262,8 +291,20 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
   }
   async function publishStealth() {
     setBusy(true); setStep('');
-    try { await azns.publishStealth(label, setStep); refresh(); }
+    try { await azns.publishStealth(label, setStep); setKeyPublished(true); refresh(); }
     catch (e: any) { setStep(`Couldn't publish: ${e?.message ?? 'try again'}`); }
+    finally { setBusy(false); }
+  }
+  async function doGrant() {
+    setBusy(true); setStep('');
+    try { await azns.grantAccess(label, viewer.trim(), grantTarget.trim(), setStep); setStep(`Access granted to ${short(viewer.trim())}.`); }
+    catch (e: any) { setStep(`Couldn't grant: ${e?.message ?? 'try again'}`); }
+    finally { setBusy(false); }
+  }
+  async function doRevoke() {
+    setBusy(true); setStep('');
+    try { await azns.revokeAccess(label, viewer.trim(), setStep); setStep(`Access revoked for ${short(viewer.trim())}.`); }
+    catch (e: any) { setStep(`Couldn't revoke: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
 
@@ -274,7 +315,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
         <span className="rc-tags">
           {status !== null && <span className={`tag ${status === 1 ? 'avail' : 'taken'}`}>{STATUS_LABEL[status] ?? '—'}</span>}
           <span className="mode-chip">{(mode ?? 'PUBLIC').toLowerCase()}</span>
-          {owned && <span className="tag mine">{justClaimed ? '🎉 Yours' : 'Yours'}</span>}
+          {owned && <span className="tag mine"><Icon d={I.check} size={12} />{justClaimed ? 'Registered' : 'Yours'}</span>}
         </span>
       </div>
 
@@ -288,7 +329,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
         <>
           {owned && (
             (status === 2)
-              ? <p className="grace">⚠ Expired — in its grace period. Renew now to keep it.</p>
+              ? <p className="grace"><Icon d={I.warn} size={14} /> Expired — in its grace period. Renew now to keep it.</p>
               : (expiry ? <p className="muted small">Expires <b>{fmtDate(expiry)}</b> · {fmtRel(expiry)}</p> : null)
           )}
 
@@ -308,13 +349,37 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
                 <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
               </div>
             </>
+          ) : mode === 'STEALTH' ? (
+            <>
+              <p className="muted">A <b>stealth</b> name accepts payments from anyone while keeping every payment
+                off the explorer. Publish your stealth key so wallets can derive fresh, unlinkable payment
+                details for each sender.</p>
+              <div className="keyline">
+                <Icon d={I.key} size={15} />
+                {keyPublished === null ? 'Checking key…'
+                  : keyPublished ? <>Stealth key <b>published</b> — this name can receive payments.</>
+                  : <>No stealth key yet — publish one to start receiving.</>}
+              </div>
+              <div className="row">
+                {!keyPublished && <button onClick={publishStealth} disabled={busy}>Publish stealth key</button>}
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
+              </div>
+            </>
           ) : (
             <>
-              {mode === 'STEALTH'
-                ? <p className="muted">This is a <b>stealth</b> name — publish a stealth key and anyone can pay it, with every payment landing on a fresh, unlinkable one-time address. (Per-payment derivation + scanning/sweep is experimental; see docs/stealth-mode.md.)</p>
-                : <p className="muted">This is a <b>selective</b> name — its resolution is private to the specific viewers you grant.</p>}
+              <p className="muted">A <b>selective</b> name resolves only for viewers you choose. Grants are private
+                notes — nothing about who can resolve this name ever appears on-chain.</p>
+              <label className="field">Grant access
+                <div className="row">
+                  <input value={viewer} onChange={(e) => setViewer(e.target.value)} placeholder="0x… viewer's Aztec address" disabled={busy} />
+                </div>
+                <div className="row">
+                  <input value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} placeholder="0x… address they should see" disabled={busy} />
+                  <button onClick={doGrant} disabled={busy || !viewer.trim() || !grantTarget.trim()}>Grant</button>
+                  <button className="ghost" onClick={doRevoke} disabled={busy || !viewer.trim()}>Revoke</button>
+                </div>
+              </label>
               <div className="row">
-                {mode === 'STEALTH' && <button onClick={publishStealth} disabled={busy}>Publish stealth key</button>}
                 <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year</button>
               </div>
             </>
@@ -380,7 +445,7 @@ function PayBox({ label, name }: { label: string; name: string }) {
   return (
     <div className="paybox">
       <div className="pay-head">
-        <b>💸 Send privately to {name}</b>
+        <b><Icon d={I.send} size={14} /> Send privately to {name}</b>
         <span className="bal">balance: {bal === null ? '—' : `${bal} TRU`}</span>
       </div>
       <div className="row">
@@ -389,6 +454,32 @@ function PayBox({ label, name }: { label: string; name: string }) {
         <button className="ghost" onClick={faucet} disabled={busy}>Get test tokens</button>
       </div>
       <p className="muted small">Always a private transfer — the amount &amp; recipient never appear on the explorer.{busy ? ` ${msg || 'Working…'}` : msg ? ` ${msg}` : ''}</p>
+    </div>
+  );
+}
+
+/** Viewer-side selective resolution: shows what this name resolves to FOR YOU. */
+function AccessCheck({ label, name }: { label: string; name: string }) {
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
+  async function check() {
+    setBusy(true); setMsg(''); setOut(null);
+    try {
+      const addr = await azns.myAccess(label);
+      if (addr) setOut(addr);
+      else setMsg(`${name} doesn't resolve for your account — if it's a selective name, ask the owner for access.`);
+    } catch (e: any) { setMsg(e?.message ?? 'Could not check access.'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="accessbox">
+      <div className="pay-head">
+        <b><Icon d={I.eye} size={14} /> Selective access</b>
+        <button className="ghost" onClick={check} disabled={busy}>{busy ? 'Checking…' : 'What does it resolve to for me?'}</button>
+      </div>
+      {out && <p className="result">For you <span className="mono">{out}</span></p>}
+      {msg && <p className="muted small">{msg}</p>}
     </div>
   );
 }
