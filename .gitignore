@@ -24,3 +24,7 @@ demo_out.txt
 
 # deployer secret
 scripts/.deployer.json
+
+# local WSL run helpers (env-specific, may contain spent faucet claims)
+run_*.sh
+_*.sh

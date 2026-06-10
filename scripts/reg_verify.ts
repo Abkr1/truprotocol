@@ -4,7 +4,6 @@
 //  can still change it. Run against testnet (or AZTEC_NODE_URL).
 //  Usage: NAME=satoshi0 npm run reg:verify
 // =============================================================================
-import { NO_FROM } from '@aztec/aztec.js/account';
 import { Fr } from '@aztec/aztec.js/fields';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { AZNSContract } from '../azns/target/AZNS.js';
@@ -26,10 +25,8 @@ const toAddr = (v: any) => AztecAddress.fromField(Fr.fromString((v && v.toString
 async function main() {
   const zkp = JSON.parse(fs.readFileSync('zkp_data.json', 'utf-8'));
   console.log(`node: ${NODE_URL}\nAZNS: ${aznsAddr()}`);
-  const { wallet, account, manager, node, fee } = await setupDeployer(NODE_URL);
-
-  console.log('deploying account (if needed) ...');
-  await (await manager.getDeployMethod()).send({ from: NO_FROM, fee });
+  // setupDeployer connects + deploys the deployer account on-chain if needed.
+  const { wallet, account, node, fee } = await setupDeployer(NODE_URL);
 
   const inst = await node.getContract(AztecAddress.fromString(aznsAddr()));
   if (!inst) throw new Error('AZNS contract not found on the node');

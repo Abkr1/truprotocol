@@ -12,7 +12,6 @@
 //
 //  Testnet node + version: https://rpc.testnet.aztec-labs.com (aztec 4.3.1).
 // =============================================================================
-import { NO_FROM } from '@aztec/aztec.js/account';
 import { AZNSContract } from '../azns/target/AZNS.js';
 import { setupDeployer } from './fees.js';
 import fs from 'node:fs';
@@ -28,11 +27,8 @@ async function main() {
 
   console.log(`connecting to testnet: ${NODE_URL}`);
   // Stable deployer + automatic fee selection (native fee juice / claim / FPC).
-  const { wallet, account, manager, fee } = await setupDeployer(NODE_URL);
-
-  console.log('deploying account ...');
-  const dm = await manager.getDeployMethod();
-  await dm.send({ from: NO_FROM, fee });
+  // setupDeployer also deploys the deployer account on-chain if needed.
+  const { wallet, account, fee } = await setupDeployer(NODE_URL);
 
   console.log('deploying AZNS ...');
   const { contract: azns } = await AZNSContract.deploy(wallet, zkp.vkHash).send({ from: account, fee });
