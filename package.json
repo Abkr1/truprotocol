@@ -13,7 +13,8 @@
     "pay:demo": "node --loader ts-node/esm scripts/pay_demo.ts",
     "reg:verify": "node --loader ts-node/esm scripts/reg_verify.ts",
     "fund:status": "node --loader ts-node/esm scripts/fund_status.ts",
-    "test:codecs": "node --loader ts-node/esm scripts/chains_test.ts"
+    "test:codecs": "node --loader ts-node/esm scripts/chains_test.ts",
+    "claim:juice": "node --loader ts-node/esm scripts/claim_juice.ts"
   },
   "dependencies": {
     "@aztec/accounts": "4.3.1",
