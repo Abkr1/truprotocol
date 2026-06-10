@@ -28,3 +28,7 @@ scripts/.deployer.json
 # local WSL run helpers (env-specific, may contain spent faucet claims)
 run_*.sh
 _*.sh
+
+# machine-specific dApp helpers + preview launcher
+*_dapp.sh
+.claude/launch.json
