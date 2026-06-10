@@ -4,15 +4,11 @@
 //  can still change it. Run against testnet (or AZTEC_NODE_URL).
 //  Usage: NAME=satoshi0 npm run reg:verify
 // =============================================================================
-import { SponsoredFeePaymentMethod } from '@aztec/aztec.js/fee';
 import { NO_FROM } from '@aztec/aztec.js/account';
 import { Fr } from '@aztec/aztec.js/fields';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
-import { getContractInstanceFromInstantiationParams } from '@aztec/aztec.js/contracts';
-import { createAztecNodeClient } from '@aztec/aztec.js/node';
-import { EmbeddedWallet } from '@aztec/wallets/embedded';
-import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from '../azns/target/AZNS.js';
+import { setupDeployer } from './fees.js';
 import { nameHash, labelLength, MODE, normaliseName } from './lib.js';
 import fs from 'node:fs';
 
@@ -29,19 +25,12 @@ const toAddr = (v: any) => AztecAddress.fromField(Fr.fromString((v && v.toString
 
 async function main() {
   const zkp = JSON.parse(fs.readFileSync('zkp_data.json', 'utf-8'));
-  const wallet = await EmbeddedWallet.create(NODE_URL, { pxe: { proverEnabled: !/localhost|127\.0\.0\.1/.test(NODE_URL) } });
-  const fpc = await getContractInstanceFromInstantiationParams(SponsoredFPCContract.artifact, { salt: new Fr(0n) });
-  await wallet.registerContract(fpc, SponsoredFPCContract.artifact);
-  const fee = { paymentMethod: new SponsoredFeePaymentMethod(fpc.address) };
-
   console.log(`node: ${NODE_URL}\nAZNS: ${aznsAddr()}`);
-  console.log('creating account (sponsored, real proof) ...');
-  const m = await wallet.createSchnorrAccount(Fr.random(), Fr.random());
-  await (await m.getDeployMethod()).send({ from: NO_FROM, fee });
-  const account = (await wallet.getAccounts())[0].item;
-  console.log(`account: ${account.toString()}`);
+  const { wallet, account, manager, node, fee } = await setupDeployer(NODE_URL);
 
-  const node = createAztecNodeClient(NODE_URL);
+  console.log('deploying account (if needed) ...');
+  await (await manager.getDeployMethod()).send({ from: NO_FROM, fee });
+
   const inst = await node.getContract(AztecAddress.fromString(aznsAddr()));
   if (!inst) throw new Error('AZNS contract not found on the node');
   await wallet.registerContract(inst, AZNSContract.artifact);

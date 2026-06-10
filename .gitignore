@@ -21,3 +21,6 @@ demo_out.txt
 
 # claude runtime
 .claude/scheduled_tasks.lock
+
+# deployer secret
+scripts/.deployer.json

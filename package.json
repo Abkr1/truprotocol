@@ -11,7 +11,8 @@
     "register:testnet": "node --loader ts-node/esm scripts/register_testnet.ts",
     "stealth:demo": "node --loader ts-node/esm scripts/stealth_demo.ts",
     "pay:demo": "node --loader ts-node/esm scripts/pay_demo.ts",
-    "reg:verify": "node --loader ts-node/esm scripts/reg_verify.ts"
+    "reg:verify": "node --loader ts-node/esm scripts/reg_verify.ts",
+    "fund:status": "node --loader ts-node/esm scripts/fund_status.ts"
   },
   "dependencies": {
     "@aztec/accounts": "4.3.1",
