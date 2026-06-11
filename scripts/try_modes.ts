@@ -14,7 +14,7 @@ import { createAztecNodeClient } from '@aztec/aztec.js/node';
 import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from '../azns/target/AZNS.js';
-import { nameHash, labelLength, MODE, normaliseName } from './lib.js';
+import { nameHash, labelLength, packLabel, MODE, normaliseName } from './lib.js';
 import fs from 'node:fs';
 
 const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
@@ -51,7 +51,7 @@ async function main() {
 
   console.log(`\n[1] register ${normaliseName(NAME)} in PUBLIC (permissionless) ...`);
   try {
-    await azns.methods.register(nh, len, account, 1, MODE.PUBLIC)
+    await azns.methods.register(nh, packLabel(NAME), len, account, 1, MODE.PUBLIC)
       .send({ from: account, fee });
     console.log('    PUBLIC registration succeeded.');
   } catch (e: any) { console.log('    failed:', e?.message); }
@@ -59,7 +59,7 @@ async function main() {
   for (const mode of ['SELECTIVE', 'STEALTH'] as const) {
     console.log(`\n[+] try the SAME name in ${mode} (simulate) ...`);
     try {
-      await azns.methods.register(nh, len, account, 1, MODE[mode]).simulate({ from: account });
+      await azns.methods.register(nh, packLabel(NAME), len, account, 1, MODE[mode]).simulate({ from: account });
       console.log(`    ⚠️ unexpectedly allowed in ${mode}`);
     } catch (e: any) {
       console.log(`    ❌ rejected (expected): ${(e?.message || '').split('\n')[0]}`);

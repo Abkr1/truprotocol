@@ -18,7 +18,7 @@ import { getContractInstanceFromInstantiationParams } from '@aztec/aztec.js/cont
 import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from '../azns/target/AZNS.js';
-import { nameHash, labelLength, MODE, normaliseName } from './lib.js';
+import { nameHash, labelLength, packLabel, MODE, normaliseName } from './lib.js';
 import fs from 'node:fs';
 
 const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
@@ -59,7 +59,7 @@ async function main() {
   const len = labelLength(RAW);
 
   console.log(`\nregister "${normaliseName(RAW)}" (PUBLIC, 1y, permissionless) ...`);
-  await send(azns.methods.register(nh, len, account, 1, MODE.PUBLIC));
+  await send(azns.methods.register(nh, packLabel(RAW), len, account, 1, MODE.PUBLIC));
   console.log('  registered.');
 
   console.log('reading back state ...');

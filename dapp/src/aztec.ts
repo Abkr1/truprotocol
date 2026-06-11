@@ -18,7 +18,7 @@ import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from './contracts/AZNS';
 import {
-  nameHash, labelLength, normaliseName,
+  nameHash, labelLength, normaliseName, packLabel, unpackLabel,
   MODE, MIN_LABEL, MAX_LABEL, ONE_YEAR_SECS, nowSecs, type ModeName,
 } from './lib';
 
@@ -196,7 +196,9 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
   const modeVal = MODE[mode];
   onStep(`Registering ${normaliseName(raw)}…`);
   // Permissionless: anyone may claim any available name. No proof, no KYC.
-  await send(c.azns.methods.register(nh, len, c.account, years, modeVal));
+  // The packed label is minted back to the owner as an encrypted on-chain
+  // backup, so any browser/device with these keys can rebuild "My names".
+  await send(c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal));
   recordName(raw, mode, years);
   if (mode === 'STEALTH') {
     // Stealth names need a published meta-key before anyone can pay them -
@@ -248,6 +250,36 @@ export function estimatedExpiry(n: MyName): number | null {
   return n.registeredAt ? n.registeredAt + (n.years ?? 1) * Number(ONE_YEAR_SECS) : null;
 }
 const MODE_NAMES: ModeName[] = ['PUBLIC', 'SELECTIVE', 'STEALTH'];
+
+/** Rebuild "My names" from the encrypted on-chain label backups (LabelNotes).
+ *  This is what makes the list follow the ACCOUNT instead of the browser:
+ *  a fresh browser/device with the same keys decrypts the backups, re-derives
+ *  each name hash, keeps only names this account still owns, and merges them
+ *  into the local list. Returns how many names were added. */
+export async function restoreMyNames(): Promise<number> {
+  await connect();
+  const out: any = await sim(conn!.azns.methods.my_labels());
+  const fields: any[] = Array.isArray(out) ? out : [];
+  let added = 0;
+  for (const f of fields) {
+    let v: bigint;
+    try { v = BigInt((f && f.toString) ? f.toString() : f ?? 0); } catch { continue; }
+    if (v === 0n) continue;
+    const label = unpackLabel(v);
+    if (!label || myNames().some((n) => n.label === label)) continue;
+    try {
+      // The backup is unverified by the contract - check it against the public
+      // registry before trusting it.
+      const nh = await nameHash(label);
+      const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
+      if (!owner.equals(conn!.account)) continue;
+      const modeNum = Number(await sim(conn!.azns.methods.mode_of(nh)));
+      recordName(label, MODE_NAMES[modeNum] ?? 'PUBLIC');
+      added++;
+    } catch { /* malformed backup - skip */ }
+  }
+  return added;
+}
 
 /** Full on-chain state for a name: lease status, ownership, mode and expiry.
  *  This is the source of truth the dashboard renders from (local storage only

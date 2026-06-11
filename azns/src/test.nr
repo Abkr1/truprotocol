@@ -60,7 +60,7 @@ unconstrained fn anyone_can_register() {
     let name = 999;
 
     // 5-letter label, 1-year lease, MODE_PUBLIC, owner = alice.
-    env.call_private(alice, AZNS::at(azns).register(name, 5, alice, 1, 0));
+    env.call_private(alice, AZNS::at(azns).register(name, 0, 5, alice, 1, 0));
 
     let owner = env.view_public(AZNS::at(azns).owner_of(name));
     assert(owner.eq(alice), "registrant must own the name");
@@ -76,6 +76,18 @@ unconstrained fn anyone_can_register() {
     assert(expiry > 0, "expiry_of must report a future expiry");
 }
 
+// Registering mints the owner an encrypted label-backup note; my_labels reads
+// it back so a fresh device can rebuild "my names" from chain.
+#[test]
+unconstrained fn label_backup_roundtrip() {
+    let (mut env, azns) = setup();
+    let alice = env.create_light_account();
+    let label = 0x7465737473; // "tests" packed big-endian
+    env.call_private(alice, AZNS::at(azns).register(999, label, 5, alice, 1, 0));
+    let labels = env.call_private(alice, AZNS::at(azns).my_labels());
+    assert(labels[0] == label, "label note must round-trip via my_labels");
+}
+
 // An active name cannot be taken over.
 #[test(should_fail_with = "name registered or in grace period")]
 unconstrained fn active_name_cannot_be_taken() {
@@ -83,8 +95,8 @@ unconstrained fn active_name_cannot_be_taken() {
     let alice = env.create_light_account();
     let bob = env.create_light_account();
     let name = 999;
-    env.call_private(alice, AZNS::at(azns).register(name, 5, alice, 1, 0));
-    env.call_private(bob, AZNS::at(azns).register(name, 5, bob, 1, 0));
+    env.call_private(alice, AZNS::at(azns).register(name, 0, 5, alice, 1, 0));
+    env.call_private(bob, AZNS::at(azns).register(name, 0, 5, bob, 1, 0));
 }
 
 // The owner can repoint a public name anywhere, anytime.
@@ -94,7 +106,7 @@ unconstrained fn owner_can_repoint() {
     let alice = env.create_light_account();
     let bob = env.create_light_account();
     let name = 999;
-    env.call_private(alice, AZNS::at(azns).register(name, 5, alice, 1, 0));
+    env.call_private(alice, AZNS::at(azns).register(name, 0, 5, alice, 1, 0));
     env.call_public(alice, AZNS::at(azns).set_public_target(name, bob));
     let resolved = env.view_public(AZNS::at(azns).resolve_public(name));
     assert(resolved.eq(bob), "owner repoint must take effect");
@@ -107,7 +119,7 @@ unconstrained fn non_owner_cannot_repoint() {
     let alice = env.create_light_account();
     let bob = env.create_light_account();
     let name = 999;
-    env.call_private(alice, AZNS::at(azns).register(name, 5, alice, 1, 0));
+    env.call_private(alice, AZNS::at(azns).register(name, 0, 5, alice, 1, 0));
     env.call_public(bob, AZNS::at(azns).set_public_target(name, bob));
 }
 
@@ -118,7 +130,7 @@ unconstrained fn non_owner_cannot_repoint() {
 unconstrained fn register_rejects_zero_duration() {
     let (mut env, azns) = setup();
     let alice = env.create_light_account();
-    env.call_private(alice, AZNS::at(azns).register(999, 5, alice, 0, 0));
+    env.call_private(alice, AZNS::at(azns).register(999, 0, 5, alice, 0, 0));
 }
 
 // Labels under 3 characters are reserved and unpriced; register asserts.
@@ -126,7 +138,7 @@ unconstrained fn register_rejects_zero_duration() {
 unconstrained fn register_rejects_short_label() {
     let (mut env, azns) = setup();
     let alice = env.create_light_account();
-    env.call_private(alice, AZNS::at(azns).register(999, 2, alice, 1, 0));
+    env.call_private(alice, AZNS::at(azns).register(999, 0, 2, alice, 1, 0));
 }
 
 // Labels are capped at 31 characters.
@@ -134,7 +146,7 @@ unconstrained fn register_rejects_short_label() {
 unconstrained fn register_rejects_long_label() {
     let (mut env, azns) = setup();
     let alice = env.create_light_account();
-    env.call_private(alice, AZNS::at(azns).register(999, 32, alice, 1, 0));
+    env.call_private(alice, AZNS::at(azns).register(999, 0, 32, alice, 1, 0));
 }
 
 // Pricing is per mode (PUBLIC $10 / SELECTIVE $50 / STEALTH $100 a year);
@@ -143,7 +155,7 @@ unconstrained fn register_rejects_long_label() {
 unconstrained fn register_rejects_invalid_mode() {
     let (mut env, azns) = setup();
     let alice = env.create_light_account();
-    env.call_private(alice, AZNS::at(azns).register(999, 5, alice, 1, 7));
+    env.call_private(alice, AZNS::at(azns).register(999, 0, 5, alice, 1, 7));
 }
 
 // Renewing demands the name's REAL mode: the claimed (cheaper) mode is charged
@@ -163,7 +175,7 @@ unconstrained fn renew_rejects_wrong_mode() {
     let alice = env.create_light_account();
     let name = 999;
     // Register as STEALTH ($200/yr) ...
-    env.call_private(alice, AZNS::at(azns).register(name, 5, alice, 1, 2));
+    env.call_private(alice, AZNS::at(azns).register(name, 0, 5, alice, 1, 2));
     // ... then try to renew claiming PUBLIC ($30/yr).
     env.call_private(alice, AZNS::at(azns).renew(name, 0, 1));
 }

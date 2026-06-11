@@ -14,7 +14,7 @@ import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { TokenContract } from '@aztec/noir-contracts.js/Token';
 import { AZNSContract } from '../azns/target/AZNS.js';
-import { nameHash, labelLength, MODE, normaliseName } from './lib.js';
+import { nameHash, labelLength, packLabel, MODE, normaliseName } from './lib.js';
 import fs from 'node:fs';
 
 const NODE_URL = process.env.AZTEC_NODE_URL ?? 'http://localhost:8080';
@@ -44,7 +44,7 @@ async function main() {
   console.log('deploying AZNS + registering "trupay" -> recipient (public) ...');
   const { contract: azns } = await AZNSContract.deploy(wallet).send({ from: payer, fee });
   const nh = await nameHash('trupay');
-  await send(payer, azns.methods.register(nh, labelLength('trupay'), payer, 1, MODE.PUBLIC));
+  await send(payer, azns.methods.register(nh, packLabel('trupay'), labelLength('trupay'), payer, 1, MODE.PUBLIC));
   await send(payer, azns.methods.set_public_target(nh, recipient));
 
   console.log('\n--- balances before ---');

@@ -71,6 +71,27 @@ export type ModeName = keyof typeof MODE;
 export const MIN_LABEL = 3;
 export const MAX_LABEL = 31;
 
+/** Pack a label (<=31 ASCII bytes) big-endian into one field value — the shape
+ *  the contract stores in the owner's encrypted LabelNote backup. */
+export function packLabel(raw: string): bigint {
+  const label = normaliseName(raw).replace(/\.tru$/, '');
+  const bytes = new TextEncoder().encode(label);
+  if (bytes.length === 0 || bytes.length > 31) throw new Error('label must be 1-31 bytes');
+  let acc = 0n;
+  for (const b of bytes) acc = (acc << 8n) + BigInt(b);
+  return acc;
+}
+
+/** Reverse of packLabel. Returns '' for zero/undecodable values. */
+export function unpackLabel(v: bigint): string {
+  if (v <= 0n) return '';
+  const bytes: number[] = [];
+  let x = v;
+  while (x > 0n) { bytes.unshift(Number(x & 0xffn)); x >>= 8n; }
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes)); }
+  catch { return ''; }
+}
+
 /** Annual price in USD cents per privacy mode — mirrors the contract. */
 export const PRICE_CENTS: Record<ModeName, number> = {
   PUBLIC: 1000,      // $10/yr

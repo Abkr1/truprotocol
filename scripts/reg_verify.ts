@@ -8,7 +8,7 @@ import { Fr } from '@aztec/aztec.js/fields';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { AZNSContract } from '../azns/target/AZNS.js';
 import { setupDeployer } from './fees.js';
-import { nameHash, labelLength, MODE, normaliseName } from './lib.js';
+import { nameHash, labelLength, packLabel, MODE, normaliseName } from './lib.js';
 import fs from 'node:fs';
 
 const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
@@ -35,7 +35,7 @@ async function main() {
   const nh = await nameHash(NAME);
   console.log(`\n[1] register ${normaliseName(NAME)} PUBLIC (permissionless, no proof) ...`);
   await azns.methods
-    .register(nh, labelLength(NAME), account, 1, MODE.PUBLIC)
+    .register(nh, packLabel(NAME), labelLength(NAME), account, 1, MODE.PUBLIC)
     .send({ from: account, fee });
   console.log('    registered.');
 

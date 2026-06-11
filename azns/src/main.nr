@@ -1,6 +1,7 @@
 use aztec::macros::aztec;
 
 pub mod resolution_note;
+pub mod label_note;
 
 mod test;
 
@@ -34,6 +35,7 @@ pub contract AZNS {
         utils::comparison::Comparator,
     };
     use crate::resolution_note::ResolutionNote;
+    use crate::label_note::LabelNote;
 
     global MODE_PUBLIC: u8 = 0;     // anyone resolves (public lookup table)
     global MODE_SELECTIVE: u8 = 1;  // only granted viewers, each a different target
@@ -142,6 +144,9 @@ pub contract AZNS {
         // Per-recipient note collections use Owned<PrivateSet<...>>. Usage
         // (.at(addr)) scopes the notes to that recipient's storage slot.
         resolutions: Owned<PrivateSet<ResolutionNote, Context>, Context>,
+        // Encrypted per-owner label backups (see label_note.nr): lets any
+        // browser/device holding the account keys rebuild "my names".
+        labels: Owned<PrivateSet<LabelNote, Context>, Context>,
     }
 
     #[external("public")]
@@ -151,8 +156,20 @@ pub contract AZNS {
     // =======================================================================
     //  REGISTRATION - permissionless: anyone may claim any available name.
     // =======================================================================
+    //  `label` carries the raw label bytes (<= 31 ASCII chars, big-endian in
+    //  one field) and is minted back to the owner as an ENCRYPTED LabelNote -
+    //  their private, on-chain backup so any device with their keys can list
+    //  their names. It is not validated against name_hash (it is the owner's
+    //  own backup); clients re-derive name_hash from it on restore.
     #[external("private")]
-    fn register(name_hash: Field, label_len: u32, owner: AztecAddress, duration_years: u64, mode: u8) {
+    fn register(
+        name_hash: Field,
+        label: Field,
+        label_len: u32,
+        owner: AztecAddress,
+        duration_years: u64,
+        mode: u8,
+    ) {
         // Pricing is by MODE. The mode passed here is the one _finalize writes
         // to storage, so the price charged always matches the mode received -
         // there is nothing to lie about. label_len is bound into name_hash
@@ -166,7 +183,28 @@ pub contract AZNS {
         let duration_secs = duration_years * YEAR_SECS;
         _charge(owner, total_cents);
 
+        // Private label backup for the owner (encrypted; invisible on-chain).
+        self.storage.labels.at(owner).insert(LabelNote::new(label)).deliver(
+            MessageDelivery.ONCHAIN_CONSTRAINED,
+        );
+
         self.enqueue_self._finalize(name_hash, owner, duration_secs, mode);
+    }
+
+    // Read back the caller's label backups (up to 10 per call). Runs as a
+    // private simulation in the caller's own wallet - nothing is revealed.
+    #[external("private")]
+    fn my_labels() -> [Field; 10] {
+        let me = self.msg_sender();
+        let options = NoteGetterOptions::new().set_limit(10);
+        let notes = self.storage.labels.at(me).get_notes(options);
+        let mut out: [Field; 10] = [0; 10];
+        for i in 0..10 {
+            if i < notes.len() {
+                out[i] = notes.get(i).note.label;
+            }
+        }
+        out
     }
 
     // Registration finalizer: runs the availability/grace check, bumps the

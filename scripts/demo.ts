@@ -19,7 +19,7 @@ import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { getSponsoredFPCInstance } from './sponsored_fpc.js';
 import { AZNSContract } from '../azns/target/AZNS.js';
-import { nameHash, labelLength, priceCentsForMode, MODE, ONE_YEAR_SECS, normaliseName } from './lib.js';
+import { nameHash, labelLength, packLabel, priceCentsForMode, MODE, ONE_YEAR_SECS, normaliseName } from './lib.js';
 import fs from 'node:fs';
 
 const NODE_URL = process.env.AZTEC_NODE_URL ?? 'http://localhost:8080';
@@ -77,7 +77,7 @@ async function main() {
     const len = labelLength(raw);
     const modeName = (Object.keys(MODE) as (keyof typeof MODE)[]).find((k) => MODE[k] === mode)!;
     console.log(`   registering "${normaliseName(raw)}" (${modeName}, $${priceCentsForMode(modeName) / 100}/yr)`);
-    await send(alice, azns.methods.register(nh, len, owner, years, mode));
+    await send(alice, azns.methods.register(nh, packLabel(raw), len, owner, years, mode));
     return nh;
   };
   const epochOf = async (nh: any) => sim(alice, azns.methods.current_epoch(nh));

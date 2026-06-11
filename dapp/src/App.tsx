@@ -167,6 +167,7 @@ function Dashboard({ setAccount, lastPay }: { setAccount: (a: string | null) => 
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState('');
   const [statuses, setStatuses] = useState<Record<string, { status: number; expiry: number | null }>>({});
+  const [restoring, setRestoring] = useState(false);
 
   // Renewal radar: anything in grace, or expiring within 30 days.
   const DAYS_30 = 30 * 86400;
@@ -178,8 +179,16 @@ function Dashboard({ setAccount, lastPay }: { setAccount: (a: string | null) => 
 
   useEffect(() => {
     (async () => {
-      try { await azns.connect(); setAccount(azns.accountAddress()); setReady(true); }
-      catch (e: any) { setErr(e?.message ?? 'Could not connect.'); }
+      try {
+        await azns.connect(); setAccount(azns.accountAddress()); setReady(true);
+        // Fresh browser/device? Rebuild the list from the encrypted on-chain
+        // label backups - the list follows the account, not the browser.
+        if (azns.myNames().length === 0) {
+          setRestoring(true);
+          try { if (await azns.restoreMyNames() > 0) setNames(azns.myNames()); }
+          finally { setRestoring(false); }
+        }
+      } catch (e: any) { setErr(e?.message ?? 'Could not connect.'); }
     })();
   }, [setAccount]);
 
@@ -187,9 +196,10 @@ function Dashboard({ setAccount, lastPay }: { setAccount: (a: string | null) => 
     return (
       <div className="empty">
         <div className="empty-icon"><Icon d={I.card} size={40} /></div>
-        <h2>No names yet</h2>
-        <p className="muted">Register a name from the Search tab and it'll show up here to manage.
-          Already own one? Search for it — names you own are added back automatically.</p>
+        <h2>{restoring ? 'Looking for your names…' : 'No names yet'}</h2>
+        <p className="muted">{restoring
+          ? 'Checking the chain for names registered with this account.'
+          : "Register a name from the Search tab and it'll show up here to manage. Already own one? Search for it — names you own are added back automatically."}</p>
       </div>
     );
   }
