@@ -67,6 +67,10 @@ export const MODE = {
 } as const;
 export type ModeName = keyof typeof MODE;
 
+// Label length bounds — mirror the contract (MIN_LABEL_LEN / MAX_LABEL_LEN).
+export const MIN_LABEL = 3;
+export const MAX_LABEL = 31;
+
 /** Annual price in USD cents per privacy mode — mirrors the contract. */
 export const PRICE_CENTS: Record<ModeName, number> = {
   PUBLIC: 3000,      // $30/yr

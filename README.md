@@ -52,7 +52,7 @@ price is tiered by **privacy mode** (more privacy, higher price):
 | Selective  | $100         |
 | Stealth    | $200         |
 
-Labels under 3 characters are not sold (reserved), enforced on-chain.
+Labels are 3–31 characters; both bounds are enforced on-chain.
 
 How the lifecycle works:
 - **Register** charges `price × years` and sets an expiry.

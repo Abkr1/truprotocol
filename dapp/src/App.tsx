@@ -49,7 +49,7 @@ export default function App() {
     <div className="wrap">
       <div className="topbar">
         <div className="brand" onClick={() => setTab('search')} role="button">
-          <span className="logo">A</span><b>AZNS</b>
+          <span className="logo">t</span><b>truProtocol</b>
         </div>
         <nav className="tabs">
           <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>Search</button>
@@ -170,9 +170,11 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
   const [step, setStep] = useState('');
   const [done, setDone] = useState<{ mode: ModeName } | null>(null);
 
-  if (result.tooShort) {
+  if (result.tooShort || result.tooLong) {
     return <div className="result-card"><div className="rc-head"><span className="rc-name">{result.name}</span></div>
-      <p className="muted">Names need at least 3 letters. Try a longer one.</p></div>;
+      <p className="muted">{result.tooShort
+        ? 'Names need at least 3 characters. Try a longer one.'
+        : `Names can be at most 31 characters — this one is ${result.len}. Try a shorter one.`}</p></div>;
   }
 
   async function claim() {

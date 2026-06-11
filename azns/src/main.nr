@@ -76,6 +76,10 @@ pub contract AZNS {
     global PRICE_SELECTIVE_CENTS: u64 = 10000;
     global PRICE_STEALTH_CENTS: u64 = 20000;
     global MIN_LABEL_LEN: u32 = 3;
+    // Labels are 3..=31 characters. Like the minimum, the maximum is enforced
+    // trustlessly: label_len is bound into name_hash off-chain (lib.ts), so
+    // declaring a fake length yields a hash nobody resolves.
+    global MAX_LABEL_LEN: u32 = 31;
 
     // Seconds in a (non-leap) year, used to convert duration_years -> seconds.
     global YEAR_SECS: u64 = 31_536_000;
@@ -156,6 +160,7 @@ pub contract AZNS {
         // declaring a longer length makes name_hash not match the name being
         // claimed.
         assert(label_len >= MIN_LABEL_LEN, "label too short to register");
+        assert(label_len <= MAX_LABEL_LEN, "label too long to register");
         assert(duration_years >= 1, "minimum lease is 1 year");
         let total_cents = price_for_mode(mode) * duration_years;
         let duration_secs = duration_years * YEAR_SECS;

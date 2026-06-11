@@ -125,6 +125,14 @@ unconstrained fn register_rejects_short_label() {
     env.call_private(alice, AZNS::at(azns).register(999, 2, alice, 1, 0));
 }
 
+// Labels are capped at 31 characters.
+#[test(should_fail_with = "label too long to register")]
+unconstrained fn register_rejects_long_label() {
+    let (mut env, azns) = setup();
+    let alice = env.create_light_account();
+    env.call_private(alice, AZNS::at(azns).register(999, 32, alice, 1, 0));
+}
+
 // Pricing is per mode (PUBLIC $30 / SELECTIVE $100 / STEALTH $200 a year);
 // an out-of-range mode is rejected on the charge path by price_for_mode.
 #[test(should_fail_with = "invalid mode")]

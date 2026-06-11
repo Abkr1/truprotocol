@@ -1,5 +1,5 @@
 // =============================================================================
-//  aztec.ts - browser service layer for the AZNS dApp (consumer-friendly).
+//  aztec.ts - browser service layer for the truProtocol dApp (consumer-friendly).
 // =============================================================================
 //  Two phases so the UI feels like ENS:
 //   - connect(): light read-only setup (wallet + PXE + contract + an in-PXE
@@ -19,7 +19,7 @@ import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from './contracts/AZNS';
 import {
   nameHash, labelLength, normaliseName,
-  MODE, ONE_YEAR_SECS, nowSecs, type ModeName,
+  MODE, MIN_LABEL, MAX_LABEL, ONE_YEAR_SECS, nowSecs, type ModeName,
 } from './lib';
 
 const NODE_URL = (process.env.AZTEC_NODE_URL && process.env.AZTEC_NODE_URL.length > 0)
@@ -52,6 +52,7 @@ export type SearchResult = {
   name: string;        // normalised "x.tru"
   len: number;
   tooShort: boolean;
+  tooLong: boolean;
   available: boolean;
   status: number;      // 0 available, 1 active, 2 grace
   mine: boolean;
@@ -123,7 +124,7 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
     // left in localStorage from earlier dev sessions.
     const envAddr = process.env.AZNS_ADDRESS && process.env.AZNS_ADDRESS.length > 0 ? process.env.AZNS_ADDRESS : '';
     const known = envAddr || lsGet(LS.aznsAddress) || '';
-    if (!known) throw new Error('No AZNS contract configured (set AZNS_ADDRESS in dapp/.env).');
+    if (!known) throw new Error('No name registry configured (set AZNS_ADDRESS in dapp/.env).');
     // Register the already-deployed AZNS instance with this PXE so we can both
     // read AND send to it (a fresh PXE doesn't know contracts it didn't deploy).
     try {
@@ -162,12 +163,14 @@ export async function search(raw: string): Promise<SearchResult> {
   const label = raw.normalize('NFC').trim().toLowerCase().replace(/\.tru$/, '');
   const name = normaliseName(raw);
   const len = labelLength(raw);
-  if (len < 3) return { label, name, len, tooShort: true, available: false, status: -1, mine: false };
+  const base = { label, name, len, available: false, status: -1, mine: false };
+  if (len < MIN_LABEL) return { ...base, tooShort: true, tooLong: false };
+  if (len > MAX_LABEL) return { ...base, tooShort: false, tooLong: true };
   const nh = await nameHash(raw);
   const status = Number(await sim(conn!.azns.methods.lease_status(nh)));
   const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
   const mine = !owner.isZero() && owner.equals(conn!.account);
-  return { label, name, len, tooShort: false, available: status === 0, status, mine };
+  return { label, name, len, tooShort: false, tooLong: false, available: status === 0, status, mine };
 }
 
 /** Register a name (deploys the account first if needed). */
