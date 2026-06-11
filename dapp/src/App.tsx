@@ -26,6 +26,20 @@ function Icon({ d, size = 18 }: { d: JSX.Element; size?: number }) {
   );
 }
 
+/** Click-to-copy wrapper for addresses - no manual selecting hex strings. */
+function Copyable({ text, className, title, children }: { text: string; className?: string; title?: string; children?: React.ReactNode }) {
+  const [done, setDone] = useState(false);
+  return (
+    <span className={`${className ?? 'mono'} copyable`} title={title ?? 'Click to copy'}
+      onClick={async (e) => {
+        e.stopPropagation();
+        try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200); } catch { /* clipboard blocked */ }
+      }}>
+      {done ? 'Copied' : (children ?? text)}
+    </span>
+  );
+}
+
 const fmtDate = (secs: number) =>
   new Date(secs * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 const fmtRel = (secs: number) => {
@@ -44,6 +58,33 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('search');
   const [account, setAccount] = useState<string | null>(azns.accountAddress());
   const [mineCount, setMineCount] = useState(azns.myNames().length);
+  const [connecting, setConnecting] = useState(false);
+  const [balance, setBalance] = useState<bigint | null>(null);
+  const [toast, setToast] = useState('');
+  const [lastPay, setLastPay] = useState<{ delta: string; at: number } | null>(null);
+
+  // Auto-connect on load, then watch for incoming private payments in the
+  // background - owners never have to "check" anything manually.
+  useEffect(() => {
+    setConnecting(true);
+    azns.connect()
+      .then(() => {
+        setAccount(azns.accountAddress());
+        azns.startPaymentWatcher(
+          (delta) => { setToast(`Payment received: +${delta} TRU`); setLastPay({ delta: String(delta), at: Date.now() }); },
+          (bal) => setBalance(bal),
+        );
+      })
+      .catch(() => { /* badge stays in network mode; search retries connect */ })
+      .finally(() => setConnecting(false));
+    return () => azns.stopPaymentWatcher();
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 8000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   return (
     <div className="wrap">
@@ -57,14 +98,19 @@ export default function App() {
             My names{mineCount ? <span className="pip">{mineCount}</span> : null}
           </button>
         </nav>
-        {account
-          ? <span className="badge" title={account}><span className="dot" />{short(account)}</span>
-          : <span className="badge ghosty">{azns.isLocal ? 'Local' : 'Testnet'}</span>}
+        <span className="rc-tags">
+          {balance !== null && <span className="badge ghosty" title="Your private token balance (auto-updates)">{String(balance)} TRU</span>}
+          {account
+            ? <Copyable text={account} className="badge" title="Click to copy your address"><span className="dot" />{short(account)}</Copyable>
+            : <span className="badge ghosty">{connecting ? 'Connecting…' : azns.isLocal ? 'Local' : 'Testnet'}</span>}
+        </span>
       </div>
+
+      {toast && <div className="toast" role="status">{toast}</div>}
 
       {tab === 'search'
         ? <SearchTab setAccount={setAccount} onRegistered={() => setMineCount(azns.myNames().length)} />
-        : <Dashboard setAccount={setAccount} />}
+        : <Dashboard setAccount={setAccount} lastPay={lastPay} />}
 
       <footer className="foot">
         Running on {azns.isLocal ? 'a local network' : 'Aztec testnet'}
@@ -116,10 +162,19 @@ function SearchTab({ setAccount, onRegistered }: { setAccount: (a: string | null
   );
 }
 
-function Dashboard({ setAccount }: { setAccount: (a: string | null) => void }) {
+function Dashboard({ setAccount, lastPay }: { setAccount: (a: string | null) => void; lastPay?: { delta: string; at: number } | null }) {
   const [names, setNames] = useState(azns.myNames());
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState('');
+  const [statuses, setStatuses] = useState<Record<string, { status: number; expiry: number | null }>>({});
+
+  // Renewal radar: anything in grace, or expiring within 30 days.
+  const DAYS_30 = 30 * 86400;
+  const needsRenewal = names.filter((n) => {
+    const s = statuses[n.label];
+    if (!s) return false;
+    return s.status === 2 || (s.status === 1 && s.expiry !== null && s.expiry - Date.now() / 1000 < DAYS_30);
+  });
 
   useEffect(() => {
     (async () => {
@@ -141,11 +196,20 @@ function Dashboard({ setAccount }: { setAccount: (a: string | null) => void }) {
   return (
     <div className="dash">
       <h2 className="dash-title">My names <span className="muted">({names.length})</span></h2>
+      {lastPay && <p className="muted small">Last payment received: <b>+{lastPay.delta} TRU</b> · {new Date(lastPay.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
       {err && <div className="notice err">{err}</div>}
       {!ready && <p className="muted small">connecting…</p>}
+      {needsRenewal.length > 0 && (
+        <div className="notice warn">
+          <Icon d={I.warn} size={14} /> <b>Renew soon:</b>{' '}
+          {needsRenewal.map((n) => `${n.label}.tru${statuses[n.label]?.status === 2 ? ' (in grace)' : ''}`).join(', ')}
+          {' '}— use the Renew button on the card below.
+        </div>
+      )}
       {names.map((n) => (
         <OwnedCard key={n.label} label={n.label} name={`${n.label}.tru`} mode={n.mode}
           expiry={azns.estimatedExpiry(n)}
+          onStatus={(label, s) => setStatuses((prev) => ({ ...prev, [label]: { status: s.status, expiry: s.expiry } }))}
           onChanged={() => setNames(azns.myNames())}
           onForget={() => { azns.forgetName(n.label); setNames(azns.myNames()); }} />
       ))}
@@ -253,13 +317,15 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
       {!busy && <p className="muted small center">{azns.feeMode()?.funded
         ? 'Fees paid from the demo wallet’s fee juice — registration runs on testnet.'
         : 'No wallet needed — keys are created in your browser, fees are sponsored.'}</p>}
-      {busy && <p className="muted small center">This can take a minute while your registration is proven privately.</p>}
+      {busy && <p className="muted small center">{mode === 'STEALTH'
+        ? 'Registering and publishing your stealth key automatically — two private proofs, this can take a few minutes.'
+        : 'This can take a minute while your registration is proven privately.'}</p>}
     </div>
   );
 }
 
 const STATUS_LABEL = ['Available', 'Active', 'In grace'];
-function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget }: { name: string; label: string; justClaimed?: boolean; mode?: ModeName; expiry?: number | null; onChanged: () => void; onForget?: () => void }) {
+function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged, onForget }: { name: string; label: string; justClaimed?: boolean; mode?: ModeName; expiry?: number | null; onStatus?: (label: string, s: { status: number; expiry: number | null }) => void; onChanged: () => void; onForget?: () => void }) {
   const [target, setTarget] = useState('');
   const [points, setPoints] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -271,7 +337,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
   const [grantTarget, setGrantTarget] = useState('');
   const [keyPublished, setKeyPublished] = useState<boolean | null>(null);
 
-  const refresh = () => azns.nameStatus(label).then(setInfo).catch(() => {});
+  const refresh = () => azns.nameStatus(label).then((s) => { setInfo(s); onStatus?.(label, { status: s.status, expiry: s.expiry }); }).catch(() => {});
   useEffect(() => { refresh(); }, [label]);
 
   const status = info?.status ?? null;
@@ -353,11 +419,11 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
               <p className="muted small">Points to <b>you</b> by default — repoint it below anytime.</p>
               <label className="field">Aztec address it points to
                 <div className="row">
-                  <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="0x… Aztec address (defaults to you)" disabled={busy} />
+                  <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="0x… address, or a public name.tru" disabled={busy} />
                   <button onClick={save} disabled={busy || !target.trim()}>Save</button>
                 </div>
               </label>
-              {points && <p className="result">Aztec <span className="mono">{points}</span></p>}
+              {points && <p className="result">Aztec <Copyable text={points} /></p>}
               <RecordsManager label={label} />
               <div className="row">
                 <button className="ghost" onClick={lookup} disabled={busy}>Look up Aztec</button>
@@ -386,10 +452,10 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
                 notes — nothing about who can resolve this name ever appears on-chain.</p>
               <label className="field">Grant access
                 <div className="row">
-                  <input value={viewer} onChange={(e) => setViewer(e.target.value)} placeholder="0x… viewer's Aztec address" disabled={busy} />
+                  <input value={viewer} onChange={(e) => setViewer(e.target.value)} placeholder="0x… or the viewer's public name.tru" disabled={busy} />
                 </div>
                 <div className="row">
-                  <input value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} placeholder="0x… address they should see" disabled={busy} />
+                  <input value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} placeholder="0x… or name.tru they should see" disabled={busy} />
                   <button onClick={doGrant} disabled={busy || !viewer.trim() || !grantTarget.trim()}>Grant</button>
                   <button className="ghost" onClick={doRevoke} disabled={busy || !viewer.trim()}>Revoke</button>
                 </div>
@@ -489,7 +555,7 @@ function RecordList({ records }: { records: { chain: azns.Chain; address: string
       {records.map((r) => (
         <div className="rec-row" key={r.chain.key}>
           <span className="rec-chain">{r.chain.label}</span>
-          <span className="mono">{r.address}</span>
+          <Copyable text={r.address} />
         </div>
       ))}
     </div>
@@ -552,7 +618,7 @@ function AccessCheck({ label, name }: { label: string; name: string }) {
         <b><Icon d={I.eye} size={14} /> Selective access</b>
         <button className="ghost" onClick={check} disabled={busy}>{busy ? 'Checking…' : 'What does it resolve to for me?'}</button>
       </div>
-      {out && <p className="result">For you <span className="mono">{out}</span></p>}
+      {out && <p className="result">For you <Copyable text={out} /></p>}
       {msg && <p className="muted small">{msg}</p>}
     </div>
   );

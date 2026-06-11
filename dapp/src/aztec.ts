@@ -140,7 +140,14 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
 }
 
 const sim = async (interaction: any) => (await interaction.simulate({ from: conn!.account })).result;
-const send = async (interaction: any) => { await interaction.send({ from: conn!.account, fee: conn!.fee }); };
+// Track in-flight transactions so background polling never competes with the
+// prover for the PXE.
+let txInFlight = 0;
+const send = async (interaction: any) => {
+  txInFlight++;
+  try { await interaction.send({ from: conn!.account, fee: conn!.fee }); }
+  finally { txInFlight--; }
+};
 
 /** Deploy the user's account on first write (sponsored). */
 async function ensureWritable(onStep: (m: string) => void = () => {}): Promise<void> {
@@ -191,6 +198,15 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
   // Permissionless: anyone may claim any available name. No proof, no KYC.
   await send(c.azns.methods.register(nh, len, c.account, years, modeVal));
   recordName(raw, mode, years);
+  if (mode === 'STEALTH') {
+    // Stealth names need a published meta-key before anyone can pay them -
+    // do it automatically so registration is one action for the user.
+    try {
+      await publishStealth(raw, onStep);
+    } catch (e: any) {
+      onStep(`Registered. The stealth key didn't publish (${e?.message ?? 'error'}) — you can publish it from My names.`);
+    }
+  }
 }
 
 // ---- "My names": tracked client-side (the chain stores hashes, not labels) ----
@@ -261,9 +277,23 @@ function parseAddress(input: string, what = 'address'): AztecAddress {
   catch { throw new Error(`That ${what} isn't a valid Aztec address.`); }
 }
 
+/** Accept either a raw Aztec address or a public .tru name and return the
+ *  address. "grant access to bob.tru" beats pasting hex. */
+export async function resolveNameOrAddress(input: string, what = 'address'): Promise<AztecAddress> {
+  const v = input.trim();
+  if (!v) throw new Error(`Enter an ${what}.`);
+  if (!v.startsWith('0x')) {
+    await connect();
+    const addr = toAddr(await sim(conn!.azns.methods.resolve_public(await nameHash(v))));
+    if (addr.isZero()) throw new Error(`"${normaliseName(v)}" doesn't resolve publicly — paste an Aztec address, or use a public name.`);
+    return addr;
+  }
+  return parseAddress(v, what);
+}
+
 export async function setPublicTarget(raw: string, target: string, onStep: (m: string) => void = () => {}) {
   await connect(); await ensureWritable(onStep);
-  const to = parseAddress(target, 'target address');
+  const to = await resolveNameOrAddress(target, 'target address');
   onStep('Saving…');
   await send(conn!.azns.methods.set_public_target(await nameHash(raw), to));
 }
@@ -276,8 +306,8 @@ export async function setPublicTarget(raw: string, target: string, onStep: (m: s
 export async function grantAccess(raw: string, viewer: string, target: string, onStep: (m: string) => void = () => {}) {
   await connect(); await ensureWritable(onStep);
   const nh = await nameHash(raw);
-  const viewerAddr = parseAddress(viewer, 'viewer address');
-  const targetAddr = parseAddress(target, 'target address');
+  const viewerAddr = await resolveNameOrAddress(viewer, "viewer's address");
+  const targetAddr = await resolveNameOrAddress(target, 'target address');
   onStep('Reading the name epoch…');
   const epoch = BigInt((await sim(conn!.azns.methods.current_epoch(nh))).toString());
   const expiry = nowSecs() + ONE_YEAR_SECS; // capability valid for a year
@@ -288,7 +318,7 @@ export async function grantAccess(raw: string, viewer: string, target: string, o
 /** Revoke a viewer's resolution capability for this selective name. */
 export async function revokeAccess(raw: string, viewer: string, onStep: (m: string) => void = () => {}) {
   await connect(); await ensureWritable(onStep);
-  const viewerAddr = parseAddress(viewer, 'viewer address');
+  const viewerAddr = await resolveNameOrAddress(viewer, "viewer's address");
   onStep('Revoking access (private)…');
   await send(conn!.azns.methods.revoke(await nameHash(raw), viewerAddr));
 }
@@ -416,6 +446,36 @@ export async function tokenBalance(): Promise<bigint | null> {
   const addr = tokenAddress(); if (!addr) return null;
   const token = await tokenAt(addr);
   return BigInt((await sim(token.methods.balance_of_private(conn!.account))).toString());
+}
+
+// ---- Automatic payment detection ----------------------------------------------
+// Aztec wallets discover incoming private notes when they sync; nothing about a
+// payment is ever public. This watcher surfaces that automatically: it polls the
+// private balance in the background and reports increases, so owners of stealth
+// (or any) names see "payment received" without checking anything by hand.
+let watcherTimer: ReturnType<typeof setInterval> | null = null;
+export function startPaymentWatcher(
+  onPayment: (delta: bigint, balance: bigint) => void,
+  onBalance?: (balance: bigint) => void,
+  intervalMs = 20000,
+) {
+  stopPaymentWatcher();
+  let last: bigint | null = null;
+  const tick = async () => {
+    if (txInFlight > 0) return; // never compete with an in-flight proof
+    try {
+      const bal = await tokenBalance();
+      if (bal === null) return;
+      onBalance?.(bal);
+      if (last !== null && bal > last) onPayment(bal - last, bal);
+      last = bal;
+    } catch { /* node hiccup - try again next tick */ }
+  };
+  tick();
+  watcherTimer = setInterval(tick, intervalMs);
+}
+export function stopPaymentWatcher() {
+  if (watcherTimer) { clearInterval(watcherTimer); watcherTimer = null; }
 }
 
 /** How a name can be paid: resolve public target, else stealth (owner), else not payable. */

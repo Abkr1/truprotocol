@@ -297,6 +297,18 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 .accessbox { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
 .accessbox .pay-head { align-items: center; }
 
+/* ---- payment toast + copyables ------------------------------------------ */
+.toast {
+  position: fixed; right: 22px; bottom: 22px; z-index: 50;
+  background: var(--ink); color: #fff; font-size: 14px; font-weight: 600;
+  padding: 12px 18px; border-radius: 14px; box-shadow: 0 10px 30px rgba(16,40,28,.35);
+  animation: toast-in .25s ease;
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.copyable { cursor: pointer; }
+.copyable:hover { border-color: var(--green); }
+.badge.copyable:hover { background: var(--green-100); }
+
 /* ---- multichain records ------------------------------------------------- */
 .records { margin: 4px 0 14px; padding: 14px; background: var(--field); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .records .pay-head { align-items: center; margin-bottom: 6px; }
