@@ -1,15 +1,12 @@
 // =============================================================================
 //  demo.ts - end-to-end AZNS demo against a local network (or testnet).
 // =============================================================================
-//  Exercises all three resolution modes + lease renewal + option-1 multi-name,
+//  Exercises all three resolution modes + lease renewal + multi-name buys,
 //  using the v4.3.1 EmbeddedWallet + sponsored-FPC fee flow. Registration is
-//  Sybil-gated, so it consumes the stand-in personhood proof in zkp_data.json
-//  (generate with `npm run genproof`). Swap that for a real ZKPassport proof
-//  for production.
+//  permissionless - no proof, no KYC.
 //
 //  Run:
 //    aztec start --local-network            # in another terminal (port 8080)
-//    npm run genproof                       # writes zkp_data.json
 //    npm run demo                           # this script
 //
 //  Against testnet: set AZTEC_NODE_URL to the testnet node URL.
@@ -40,18 +37,7 @@ const toAddr = (v: any): AztecAddress => {
   return AztecAddress.fromField(v);
 };
 
-function loadZkp() {
-  if (!fs.existsSync('zkp_data.json')) return null;
-  return JSON.parse(fs.readFileSync('zkp_data.json', 'utf-8'));
-}
-
 async function main() {
-  const zkp = loadZkp();
-  if (!zkp) {
-    console.error('zkp_data.json not found - run `npm run genproof` first.');
-    process.exit(1);
-  }
-
   // --- 0. wallet + sponsored fee payment ---------------------------------
   const sponsoredFPC = await getSponsoredFPCInstance();
   const fee = { paymentMethod: new SponsoredFeePaymentMethod(sponsoredFPC.address) };
@@ -75,8 +61,8 @@ async function main() {
   console.log('bob    :', bob.toString());
   console.log('auditor:', auditor.toString());
 
-  // --- 1. deploy AZNS pinned to the stand-in personhood VK hash -----------
-  const { contract: azns } = await AZNSContract.deploy(wallet, zkp.vkHash).send({ from: alice, fee });
+  // --- 1. deploy AZNS ------------------------------------------------------
+  const { contract: azns } = await AZNSContract.deploy(wallet).send({ from: alice, fee });
   console.log('\nAZNS deployed at:', azns.address.toString());
 
   const send = async (from: AztecAddress, interaction: any) => {
@@ -85,24 +71,13 @@ async function main() {
   const sim = async (from: AztecAddress, interaction: any) =>
     (await interaction.simulate({ from })).result;
 
-  // Register helper: first call uses register_first (carries the proof, marks
-  // the owner a verified human); later calls use register (no proof needed).
-  let aliceVerified = false;
+  // Register helper - permissionless, one private call.
   const doRegister = async (raw: string, owner: AztecAddress, mode: number, years = 1) => {
     const nh = await nameHash(raw);
     const len = labelLength(raw);
     const modeName = (Object.keys(MODE) as (keyof typeof MODE)[]).find((k) => MODE[k] === mode)!;
     console.log(`   registering "${normaliseName(raw)}" (${modeName}, $${priceCentsForMode(modeName) / 100}/yr)`);
-    if (!aliceVerified) {
-      await send(
-        alice,
-        azns.methods.register_first(nh, len, owner, years, mode, zkp.vkAsFields, zkp.proofAsFields, zkp.publicInputs),
-      );
-      aliceVerified = true;
-      console.log('   (verified once via stand-in personhood proof; later names need no proof)');
-    } else {
-      await send(alice, azns.methods.register(nh, len, owner, years, mode));
-    }
+    await send(alice, azns.methods.register(nh, len, owner, years, mode));
     return nh;
   };
   const epochOf = async (nh: any) => sim(alice, azns.methods.current_epoch(nh));
@@ -131,11 +106,7 @@ async function main() {
   const status = await sim(alice, azns.methods.lease_status(trulib));
   console.log(`\n[LEASE]   renewed ${normaliseName('trulib')} +2yr; lease_status -> ${status} (expect 1 active)`);
 
-  // --- 6. OPTION 1 recap -------------------------------------------------
-  const verified = await sim(alice, azns.methods.is_verified(alice));
-  console.log(`\n[VERIFY]  alice is_verified -> ${verified} (proved once, bought 3 names)`);
-
-  console.log('\nAll three modes + lease renewal + option-1 multi-name exercised on-chain.');
+  console.log('\nAll three modes + lease renewal + multi-name buys exercised on-chain.');
 }
 
 main().catch((e) => {

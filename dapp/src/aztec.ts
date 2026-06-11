@@ -35,7 +35,6 @@ const LS = {
   account: 'azns.account',
 };
 
-type Zkp = { vkAsFields: string[]; vkHash: string; proofAsFields: string[]; publicInputs: string[] };
 type Manager = Awaited<ReturnType<EmbeddedWallet['createSchnorrAccount']>>;
 
 type Conn = {
@@ -46,7 +45,6 @@ type Conn = {
   feeLabel: string;
   funded: boolean;   // account already holds native fee juice (=> already deployed)
   azns: AZNSContract;
-  zkp: Zkp;
 };
 
 export type SearchResult = {
@@ -65,12 +63,6 @@ let connecting: Promise<Conn> | null = null;
 
 const lsGet = (k: string) => globalThis.localStorage?.getItem(k) ?? null;
 const lsSet = (k: string, v: string) => globalThis.localStorage?.setItem(k, v);
-
-async function loadZkp(): Promise<Zkp> {
-  const res = await fetch('/zkp_data.json');
-  if (!res.ok) throw new Error('proof bundle not found');
-  return (await res.json()) as Zkp;
-}
 
 function toAddr(v: any): AztecAddress {
   if (typeof v === 'bigint' || typeof v === 'number') return AztecAddress.fromField(new Fr(BigInt(v)));
@@ -140,8 +132,7 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
     } catch { /* may already be registered, or sim-only works */ }
     const azns = await AZNSContract.at(AztecAddress.fromString(known), wallet);
 
-    const zkp = await loadZkp();
-    conn = { wallet, account, manager, fee, feeLabel, funded, azns, zkp };
+    conn = { wallet, account, manager, fee, feeLabel, funded, azns };
     return conn;
   })();
   try { return await connecting; } finally { connecting = null; }
@@ -187,17 +178,9 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
   const nh = await nameHash(raw);
   const len = labelLength(raw);
   const modeVal = MODE[mode];
-  const verified = Boolean(await sim(c.azns.methods.is_verified(c.account)));
   onStep(`Registering ${normaliseName(raw)}…`);
-  if (!verified) {
-    const toFr = (xs: string[]) => xs.map((x) => Fr.fromString(x));
-    await send(c.azns.methods.register_first(
-      nh, len, c.account, years, modeVal,
-      toFr(c.zkp.vkAsFields), toFr(c.zkp.proofAsFields), toFr(c.zkp.publicInputs),
-    ));
-  } else {
-    await send(c.azns.methods.register(nh, len, c.account, years, modeVal));
-  }
+  // Permissionless: anyone may claim any available name. No proof, no KYC.
+  await send(c.azns.methods.register(nh, len, c.account, years, modeVal));
   recordName(raw, mode, years);
 }
 

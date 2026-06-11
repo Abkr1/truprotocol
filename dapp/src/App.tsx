@@ -105,7 +105,7 @@ function SearchTab({ setAccount, onRegistered }: { setAccount: (a: string | null
         <div className="features">
           <Feature icon={I.globe} title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Ethereum, and more." />
           <Feature icon={I.eye} title="Selective & stealth" text="Show a different address per viewer, or accept private payments to a hidden address." />
-          <Feature icon={I.user} title="One human, one name" text="Sybil-resistant: registration is gated by a proof of personhood." />
+          <Feature icon={I.shield} title="Permissionless" text="No KYC, no identity checks, no gatekeepers — anyone can register any available name." />
         </div>
       )}
     </>

@@ -19,19 +19,13 @@ import fs from 'node:fs';
 const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
 
 async function main() {
-  if (!fs.existsSync('zkp_data.json')) {
-    console.error('zkp_data.json not found - run `npm run genproof` first.');
-    process.exit(1);
-  }
-  const zkp = JSON.parse(fs.readFileSync('zkp_data.json', 'utf-8'));
-
   console.log(`connecting to testnet: ${NODE_URL}`);
   // Stable deployer + automatic fee selection (native fee juice / claim / FPC).
   // setupDeployer also deploys the deployer account on-chain if needed.
   const { wallet, account, fee } = await setupDeployer(NODE_URL);
 
-  console.log('deploying AZNS ...');
-  const { contract: azns } = await AZNSContract.deploy(wallet, zkp.vkHash).send({ from: account, fee });
+  console.log('deploying AZNS (permissionless registration) ...');
+  const { contract: azns } = await AZNSContract.deploy(wallet).send({ from: account, fee });
   const addr = azns.address.toString();
   console.log(`\nAZNS deployed on testnet at: ${addr}`);
 

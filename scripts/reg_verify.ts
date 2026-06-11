@@ -23,7 +23,6 @@ function aznsAddr(): string {
 const toAddr = (v: any) => AztecAddress.fromField(Fr.fromString((v && v.toString) ? v.toString() : String(v)));
 
 async function main() {
-  const zkp = JSON.parse(fs.readFileSync('zkp_data.json', 'utf-8'));
   console.log(`node: ${NODE_URL}\nAZNS: ${aznsAddr()}`);
   // setupDeployer connects + deploys the deployer account on-chain if needed.
   const { wallet, account, node, fee } = await setupDeployer(NODE_URL);
@@ -34,11 +33,9 @@ async function main() {
   const azns = await AZNSContract.at(AztecAddress.fromString(aznsAddr()), wallet);
 
   const nh = await nameHash(NAME);
-  const toFr = (xs: string[]) => xs.map((x) => Fr.fromString(x));
-
-  console.log(`\n[1] register ${normaliseName(NAME)} PUBLIC (no set-address step afterwards) ...`);
+  console.log(`\n[1] register ${normaliseName(NAME)} PUBLIC (permissionless, no proof) ...`);
   await azns.methods
-    .register_first(nh, labelLength(NAME), account, 1, MODE.PUBLIC, toFr(zkp.vkAsFields), toFr(zkp.proofAsFields), toFr(zkp.publicInputs))
+    .register(nh, labelLength(NAME), account, 1, MODE.PUBLIC)
     .send({ from: account, fee });
   console.log('    registered.');
 

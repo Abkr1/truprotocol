@@ -5,17 +5,11 @@ authors = ["Trulib Ltd"]
 compiler_version = ">=0.34.0"
 
 # -----------------------------------------------------------------------------
-# VERSION NOTE — READ BEFORE COMPILING
-# v3 adds ZKPassport proof verification, whose interface (verify_honk_proof,
-# UltraHonkVerificationKey/ZKProof, #[external("private")]) comes from the Aztec
-# v4.3.0 line. The aztec dependency and bb_proof_verification MUST share the
-# exact same tag, and it must match `aztec --version`. The v2.0.x examples in
-# git history use a different macro dialect — do not mix tags.
-#
-# Run `aztec-up`, then `aztec --version`, then set the tag below to match.
+# VERSION NOTE — the aztec dependency tag MUST match `aztec --version`
+# (run `aztec-up` to update). The v2.0.x examples in git history use a
+# different macro dialect — do not mix tags.
 # -----------------------------------------------------------------------------
 
 [dependencies]
 aztec = { git = "https://github.com/AztecProtocol/aztec-nr/", tag = "v4.3.1", directory = "aztec" }
-bb_proof_verification = { git = "https://github.com/AztecProtocol/aztec-packages/", tag = "v4.3.1", directory = "barretenberg/noir/bb_proof_verification" }
 # Custom ResolutionNote lives in src/resolution_note.nr (no extra dep needed).

@@ -1,4 +1,4 @@
-// Copies the freshly-built contract binding + stand-in proof into the dApp.
+// Copies the freshly-built contract binding into the dApp.
 // Run automatically before `dev`/`build`, or manually via `npm run sync`.
 import { copyFileSync, mkdirSync, existsSync } from 'node:fs';
 
@@ -15,12 +15,6 @@ for (const [from, to] of need) {
     process.exit(1);
   }
   copyFileSync(from, to);
-}
-
-if (existsSync('../zkp_data.json')) {
-  copyFileSync('../zkp_data.json', 'public/zkp_data.json');
-} else {
-  console.warn('warning: ../zkp_data.json not found - run `npm run genproof` at repo root');
 }
 
 // Serve the bb.js WASM at /assets (matches BB_WASM_PATH in vite.config.ts).

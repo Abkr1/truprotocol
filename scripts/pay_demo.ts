@@ -20,7 +20,6 @@ import fs from 'node:fs';
 const NODE_URL = process.env.AZTEC_NODE_URL ?? 'http://localhost:8080';
 
 async function main() {
-  const zkp = JSON.parse(fs.readFileSync('zkp_data.json', 'utf-8'));
   const proverEnabled = !/localhost|127\.0\.0\.1/.test(NODE_URL);
   // ephemeral: in-memory PXE so stale data from earlier nets can't cause reorgs.
   const wallet = await EmbeddedWallet.create(NODE_URL, { ephemeral: true, pxe: { proverEnabled } });
@@ -43,10 +42,9 @@ async function main() {
   await send(payer, token.methods.mint_to_private(payer, 1000n));
 
   console.log('deploying AZNS + registering "trupay" -> recipient (public) ...');
-  const { contract: azns } = await AZNSContract.deploy(wallet, zkp.vkHash).send({ from: payer, fee });
+  const { contract: azns } = await AZNSContract.deploy(wallet).send({ from: payer, fee });
   const nh = await nameHash('trupay');
-  const toFr = (xs: string[]) => xs.map((x) => Fr.fromString(x));
-  await send(payer, azns.methods.register_first(nh, labelLength('trupay'), payer, 1, MODE.PUBLIC, toFr(zkp.vkAsFields), toFr(zkp.proofAsFields), toFr(zkp.publicInputs)));
+  await send(payer, azns.methods.register(nh, labelLength('trupay'), payer, 1, MODE.PUBLIC));
   await send(payer, azns.methods.set_public_target(nh, recipient));
 
   console.log('\n--- balances before ---');

@@ -5,30 +5,19 @@ pub mod resolution_note;
 mod test;
 
 // =============================================================================
-//  AZNS - Aztec Naming Service  - v3: ZKPassport Sybil-gated registration
+//  AZNS - Aztec Naming Service  - v4: permissionless registration
 // =============================================================================
-//  Adds a proof-of-personhood gate to registration. To claim a name, the
-//  caller must submit a valid ZKPassport (UltraHonk) proof. The proof carries,
-//  as a PUBLIC INPUT, a per-service NULLIFIER derived from the user's ID + our
-//  domain/scope (Poseidon2). We record spent nullifiers publicly so one human
-//  can register at most once per scope == one-human-one-name Sybil resistance,
-//  WITHOUT ever learning who the human is.
-//
-//  HOW IT VERIFIES: we store the ZKPassport circuit's VK HASH at deploy time. On
-//  register, the caller submits the full VK + proof + public_inputs; the
-//  contract calls verify_honk_proof(vk, proof, public_inputs, stored_vk_hash),
-//  which (1) checks the VK hashes to our stored hash and (2) checks the proof
-//  is valid. Verification runs INSIDE the private function (recursive), so the
-//  proof itself stays private; only the state changes we enqueue go public.
+//  Anyone may register any available name - no identity proof, no KYC, no
+//  allowlist. The only gates are economic and structural:
+//    - per-mode annual pricing (see LEASE ECONOMICS),
+//    - a minimum label length, enforced trustlessly via the length-bound
+//      name hash,
+//    - the lease/grace lifecycle (an active or in-grace name can't be taken).
 //
 //  Written for the aztec-nr v4.3.1 dialect:
 //    #[external("private")] / #[external("public")] / #[only_self] /
 //    #[contract_library_method] / self.storage / self.enqueue_self /
 //    self.msg_sender() / self.context.timestamp().
-//  bb_proof_verification provides UltraHonkVerificationKey ([Field; 115]),
-//  UltraHonkZKProof ([Field; 500]) and verify_honk_proof. The number of public
-//  inputs depends on ZKPassport's circuit; PUBLIC_INPUT_COUNT below is a
-//  placeholder - set it from their zkpassport-utils helpers.
 // =============================================================================
 
 #[aztec]
@@ -41,10 +30,9 @@ pub contract AZNS {
         messages::message_delivery::MessageDelivery,
         note::{note_getter_options::NoteGetterOptions, note_interface::NoteProperties},
         protocol::{address::AztecAddress, traits::{ToField, Serialize, Deserialize, Packable}},
-        state_vars::{Map, Owned, PrivateSet, PublicImmutable, PublicMutable},
+        state_vars::{Map, Owned, PrivateSet, PublicMutable},
         utils::comparison::Comparator,
     };
-    use bb_proof_verification::{UltraHonkVerificationKey, UltraHonkZKProof, verify_honk_proof};
     use crate::resolution_note::ResolutionNote;
 
     global MODE_PUBLIC: u8 = 0;     // anyone resolves (public lookup table)
@@ -75,16 +63,6 @@ pub contract AZNS {
         pub view_x: Field,
         pub view_y: Field,
     }
-
-    // Number of public inputs exposed by the personhood proof we consume, and
-    // the index of the nullifier within them. These MUST match the proving
-    // circuit. The stand-in circuit (personhood/src/main.nr) exposes exactly one
-    // public input - the nullifier - so COUNT=1, INDEX=0. For real ZKPassport,
-    // set these from their zkpassport-utils public-input layout.
-    global PUBLIC_INPUT_COUNT: u32 = 1;
-
-    // Index of the nullifier within the public_inputs array.
-    global NULLIFIER_INDEX: u32 = 0;
 
     // ---- LEASE ECONOMICS ----------------------------------------------------
     // Annual price per name, by PRIVACY MODE, expressed in USD CENTS so it's an
@@ -151,15 +129,6 @@ pub contract AZNS {
         // Stealth meta-keys for stealth-mode names (public; payers read them).
         stealth: Map<Field, PublicMutable<StealthKey, Context>, Context>,
 
-        // ---- ZKPassport Sybil gate ---------------------------------------
-        // The ZKPassport circuit's verification-key hash, set once at deploy.
-        zkp_vk_hash: PublicImmutable<Field, Context>,
-        // Spent per-service nullifiers. true == this proof has been used.
-        spent_nullifier: Map<Field, PublicMutable<bool, Context>, Context>,
-        // OPTION 1 GATE: addresses that have completed personhood verification
-        // ONCE. Verified humans may register additional names with no further
-        // proof. Letting a name lapse does NOT clear this.
-        verified_human: Map<AztecAddress, PublicMutable<bool, Context>, Context>,
         // Per-name epoch. Incremented every time a name is (re)registered, so a
         // prior owner's resolution notes (minted under an older epoch) stop
         // resolving once someone else takes the name over after it lapses.
@@ -173,102 +142,34 @@ pub contract AZNS {
 
     #[external("public")]
     #[initializer]
-    fn constructor(zkp_vk_hash: Field) {
-        // Pin the ZKPassport circuit we trust. Only proofs from this exact
-        // circuit (matching VK hash) will be accepted at registration.
-        self.storage.zkp_vk_hash.initialize(zkp_vk_hash);
-    }
+    fn constructor() {}
 
     // =======================================================================
-    //  REGISTRATION - OPTION 1: verify personhood ONCE, then buy freely
+    //  REGISTRATION - permissionless: anyone may claim any available name.
     // =======================================================================
-    //  register_first(): a NEW user's first-ever registration. Carries the
-    //  ZKPassport proof, verifies it, marks the owner address verified, then
-    //  registers the name.
-    //
-    //  register(): a RETURNING verified user. No proof needed - the enqueued
-    //  finalizer checks the address is already verified, then registers.
-    // -----------------------------------------------------------------------
-    #[external("private")]
-    fn register_first(
-        name_hash: Field,
-        label_len: u32,
-        owner: AztecAddress,
-        duration_years: u64,
-        mode: u8,
-        // ZKPassport proof artifacts (sizes fixed by bb_proof_verification).
-        verification_key: UltraHonkVerificationKey,
-        proof: UltraHonkZKProof,
-        public_inputs: [Field; PUBLIC_INPUT_COUNT],
-    ) {
-        // 1. Verify the ZKPassport proof. Reverts if VK mismatches or invalid.
-        let vk_hash = self.storage.zkp_vk_hash.read();
-        verify_honk_proof(verification_key, proof, public_inputs, vk_hash);
-
-        // 2. Personhood nullifier - burned so this proof can't be reused.
-        let nullifier = public_inputs[NULLIFIER_INDEX];
-
-        // 3. Fee: priced by privacy mode (see register for the binding note).
-        assert(label_len >= MIN_LABEL_LEN, "label too short to register");
-        assert(duration_years >= 1, "minimum lease is 1 year");
-        let total_cents = price_for_mode(mode) * duration_years;
-        let duration_secs = duration_years * YEAR_SECS;
-        _charge(owner, total_cents);
-
-        // 4. Public writes: burn nullifier, MARK OWNER VERIFIED, register name.
-        self.enqueue_self._finalize(name_hash, owner, duration_secs, mode, true, nullifier);
-    }
-
     #[external("private")]
     fn register(name_hash: Field, label_len: u32, owner: AztecAddress, duration_years: u64, mode: u8) {
-        // No proof. The owner must ALREADY be a verified human (from a prior
-        // register_first). The check happens in the enqueued public finalizer,
-        // since verified_human is public state.
-        //
         // Pricing is by MODE. The mode passed here is the one _finalize writes
         // to storage, so the price charged always matches the mode received -
-        // there is nothing to lie about. label_len is still bound into
-        // name_hash off-chain (see lib.ts), so the minimum-length rule can't
-        // be dodged: declaring a longer length makes name_hash not match the
-        // name being claimed.
+        // there is nothing to lie about. label_len is bound into name_hash
+        // off-chain (see lib.ts), so the minimum-length rule can't be dodged:
+        // declaring a longer length makes name_hash not match the name being
+        // claimed.
         assert(label_len >= MIN_LABEL_LEN, "label too short to register");
         assert(duration_years >= 1, "minimum lease is 1 year");
         let total_cents = price_for_mode(mode) * duration_years;
         let duration_secs = duration_years * YEAR_SECS;
         _charge(owner, total_cents);
 
-        self.enqueue_self._finalize(name_hash, owner, duration_secs, mode, false, 0);
+        self.enqueue_self._finalize(name_hash, owner, duration_secs, mode);
     }
 
-    // Shared registration finalizer used by BOTH the first and returning paths.
-    // When `is_first` is true it burns the personhood nullifier and marks the
-    // owner verified; otherwise it asserts the owner is already verified. Then
-    // it runs the availability/grace check, bumps the lease-tied note-epoch
-    // (invalidating a prior owner's stale grants), and writes the registry.
+    // Registration finalizer: runs the availability/grace check, bumps the
+    // lease-tied note-epoch (invalidating a prior owner's stale grants), and
+    // writes the registry.
     #[external("public")]
     #[only_self]
-    fn _finalize(
-        name_hash: Field,
-        owner: AztecAddress,
-        duration_secs: u64,
-        mode: u8,
-        is_first: bool,
-        nullifier: Field,
-    ) {
-        if is_first {
-            // This specific proof must not have been used before.
-            assert(!self.storage.spent_nullifier.at(nullifier).read(), "proof already used");
-            self.storage.spent_nullifier.at(nullifier).write(true);
-            // Mark the address verified so future register() calls skip the proof.
-            self.storage.verified_human.at(owner).write(true);
-        } else {
-            // OPTION 1 returning path: owner must already be a verified human.
-            assert(
-                self.storage.verified_human.at(owner).read(),
-                "address not verified; use register_first",
-            );
-        }
-
+    fn _finalize(name_hash: Field, owner: AztecAddress, duration_secs: u64, mode: u8) {
         // Availability: claimable only if unowned OR fully lapsed past grace.
         // During grace the prior owner has an exclusive right to renew().
         let current_owner = self.storage.owners.at(name_hash).read();
@@ -298,22 +199,6 @@ pub contract AZNS {
         }
     }
 
-    // Is this address a verified human? (lets a dApp show "verify once" vs
-    // "buy another name" without revealing identity).
-    #[external("public")]
-    #[view]
-    fn is_verified(addr: AztecAddress) -> bool {
-        self.storage.verified_human.at(addr).read()
-    }
-
-    // Whether a specific proof nullifier has been consumed. (Reveals only that
-    // SOME nullifier is spent, not whose.)
-    #[external("public")]
-    #[view]
-    fn is_nullifier_spent(nullifier: Field) -> bool {
-        self.storage.spent_nullifier.at(nullifier).read()
-    }
-
     // Current epoch for a name. Resolution notes minted under an older epoch
     // are treated as stale (used by my_resolution to ignore a prior owner's
     // grants after a takeover).
@@ -324,8 +209,8 @@ pub contract AZNS {
     }
 
     // ---- RENEWAL ------------------------------------------------------------
-    // Extends an existing lease WITHOUT re-proving personhood (no fresh
-    // nullifier burn) - renewing is not a new registration. Anyone may pay to
+    // Extends an existing lease - renewing is not a new registration. Anyone
+    // may pay to
     // renew any name (ENS allows gift-renewals too). The fee uses the same
     // per-mode prices. The renewer passes the name's mode as a CLAIM (the mode
     // lives in public storage, unreadable from this private context); we charge
@@ -356,8 +241,8 @@ pub contract AZNS {
 
         let now = self.context.timestamp();
         let current_expiry = self.storage.expiry.at(name_hash).read();
-        // Renewable while live OR within grace. Past grace, the name is gone and
-        // must be re-registered (with a fresh personhood proof) by anyone.
+        // Renewable while live OR within grace. Past grace, the name is gone
+        // and may be freshly registered by anyone.
         let within_grace = now <= (current_expiry + GRACE_PERIOD_SECS);
         assert(within_grace, "lease lapsed past grace period; must re-register");
 
@@ -535,14 +420,7 @@ pub contract AZNS {
 
 // =============================================================================
 //  OPEN ITEMS before this is production-ready (compiles + tests as-is):
-//   1. PUBLIC_INPUT_COUNT / NULLIFIER_INDEX are placeholders. Get the real
-//      public-input layout from ZKPassport's zkpassport-utils + their Aztec
-//      verifier. The nullifier is the field you gate on.
-//   2. Bind the proof to THIS registration. As written, a valid proof for the
-//      right scope is accepted regardless of `owner`/`name_hash`. Include
-//      `owner` (or name_hash) as a public input the ZKPassport request commits
-//      to, then assert public_inputs[OWNER_INDEX] == owner.to_field() here.
-//   3. Scope/expiry of the passport proof: assert ZKPassport's validity /
-//      current-date public inputs so an old proof can't be replayed.
-//   4. _charge is a stub - wire the real token settlement.
+//   1. _charge is a stub - wire the real token settlement. Until then,
+//      registration is free in practice, so the per-mode pricing is not yet
+//      an effective anti-squatting deterrent.
 // =============================================================================

@@ -1,10 +1,11 @@
 // =============================================================================
 //  register_testnet.ts - exercise the LIVE testnet AZNS contract.
 // =============================================================================
-//  Creates a sponsored account, runs the proof-gated register_first (stand-in
-//  ZKPassport proof from zkp_data.json), then reads back state and does a
-//  public set-target + resolve round-trip. Real proving is ON (required for
-//  testnet), so each tx takes minutes.
+//  Creates a sponsored account, registers a name (permissionless - no proof),
+//  then reads back state and does a public set-target + resolve round-trip.
+//  Real proving is ON (required for testnet), so each tx takes minutes.
+//  NOTE: uses the shared sponsored FPC, which is often drained - prefer
+//  reg_verify.ts (funded deployer) for reliable testnet runs.
 //
 //  Run:  AZNS_ADDRESS=0x... npm run register:testnet
 //  (AZNS_ADDRESS defaults to the address in dapp/.env.)
@@ -34,9 +35,8 @@ const toAddr = (v: any): AztecAddress =>
   AztecAddress.fromField(Fr.fromString((v && v.toString) ? v.toString() : String(v)));
 
 async function main() {
-  const zkp = JSON.parse(fs.readFileSync('zkp_data.json', 'utf-8'));
   const aznsAddr = aznsAddressFromEnvOrDotenv();
-  const RAW = process.env.NAME ?? 'trudao';
+  const RAW = process.env.REG_NAME ?? 'trudao'; // not NAME: WSL sets NAME=hostname
 
   console.log(`testnet: ${NODE_URL}`);
   console.log(`AZNS:    ${aznsAddr}`);
@@ -58,12 +58,11 @@ async function main() {
   const nh = await nameHash(RAW);
   const len = labelLength(RAW);
 
-  console.log(`\nregister_first "${normaliseName(RAW)}" (PUBLIC, 1y) with stand-in personhood proof ...`);
-  await send(azns.methods.register_first(nh, len, account, 1, MODE.PUBLIC, zkp.vkAsFields, zkp.proofAsFields, zkp.publicInputs));
+  console.log(`\nregister "${normaliseName(RAW)}" (PUBLIC, 1y, permissionless) ...`);
+  await send(azns.methods.register(nh, len, account, 1, MODE.PUBLIC));
   console.log('  registered.');
 
   console.log('reading back state ...');
-  console.log(`  is_verified(account) : ${await sim(azns.methods.is_verified(account))}`);
   console.log(`  owner_of(name)       : ${toAddr(await sim(azns.methods.owner_of(nh))).toString()}`);
   console.log(`  lease_status(name)   : ${await sim(azns.methods.lease_status(nh))}  (1 = active)`);
 

@@ -29,7 +29,6 @@ function aznsAddr(): string {
 const toAddr = (v: any) => AztecAddress.fromField(Fr.fromString((v && v.toString) ? v.toString() : String(v)));
 
 async function main() {
-  const zkp = JSON.parse(fs.readFileSync('zkp_data.json', 'utf-8'));
   const wallet = await EmbeddedWallet.create(NODE_URL, { pxe: { proverEnabled: true } });
   const fpc = await getContractInstanceFromInstantiationParams(SponsoredFPCContract.artifact, { salt: new Fr(0n) });
   await wallet.registerContract(fpc, SponsoredFPCContract.artifact);
@@ -49,14 +48,13 @@ async function main() {
   const azns = await AZNSContract.at(AztecAddress.fromString(aznsAddr()), wallet);
   const nh = await nameHash(NAME);
   const len = labelLength(NAME);
-  const toFr = (xs: string[]) => xs.map((x) => Fr.fromString(x));
 
-  console.log(`\n[1] register ${normaliseName(NAME)} in PUBLIC (carries personhood proof) ...`);
+  console.log(`\n[1] register ${normaliseName(NAME)} in PUBLIC (permissionless) ...`);
   try {
-    await azns.methods.register_first(nh, len, account, 1, MODE.PUBLIC, toFr(zkp.vkAsFields), toFr(zkp.proofAsFields), toFr(zkp.publicInputs))
+    await azns.methods.register(nh, len, account, 1, MODE.PUBLIC)
       .send({ from: account, fee });
-    console.log('    ✅ PUBLIC registration succeeded.');
-  } catch (e: any) { console.log('    ❌ failed:', e?.message); }
+    console.log('    PUBLIC registration succeeded.');
+  } catch (e: any) { console.log('    failed:', e?.message); }
 
   for (const mode of ['SELECTIVE', 'STEALTH'] as const) {
     console.log(`\n[+] try the SAME name in ${mode} (simulate) ...`);

@@ -5,7 +5,6 @@
   "private": true,
   "scripts": {
     "codegen": "aztec codegen ./azns/target -o ./azns/target",
-    "genproof": "node --loader ts-node/esm scripts/gen_proof.ts",
     "demo": "node --loader ts-node/esm scripts/demo.ts",
     "deploy:testnet": "node --loader ts-node/esm scripts/deploy_testnet.ts",
     "register:testnet": "node --loader ts-node/esm scripts/register_testnet.ts",
