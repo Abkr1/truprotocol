@@ -272,7 +272,10 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 
 /* ---- dashboard --------------------------------------------------------- */
 .dash { max-width: 600px; margin: 26px auto 0; }
+.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.dash-head .dash-title { margin: 0; }
 .dash-title { font-size: 20px; color: var(--ink); margin: 0 0 16px; }
+.empty .ghost { margin-top: 16px; }
 .dash .result-card { margin-top: 0; margin-bottom: 16px; }
 .empty { max-width: 520px; margin: 56px auto 0; text-align: center; }
 .empty-icon {

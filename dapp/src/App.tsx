@@ -168,6 +168,22 @@ function Dashboard({ setAccount, lastPay }: { setAccount: (a: string | null) => 
   const [err, setErr] = useState('');
   const [statuses, setStatuses] = useState<Record<string, { status: number; expiry: number | null }>>({});
   const [restoring, setRestoring] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState('');
+  const [cardEpoch, setCardEpoch] = useState(0); // bump remounts cards -> statuses re-fetch
+
+  // Pull any names registered elsewhere (another browser/device) from the
+  // on-chain label backups, then re-check every card against the chain.
+  async function refreshList() {
+    setRefreshing(true); setRefreshMsg('');
+    try {
+      const added = await azns.restoreMyNames();
+      setNames(azns.myNames());
+      setCardEpoch((e) => e + 1);
+      setRefreshMsg(added > 0 ? `${added} name${added === 1 ? '' : 's'} added from the chain.` : 'Up to date.');
+    } catch (e: any) { setRefreshMsg(e?.message ?? 'Refresh failed — try again.'); }
+    finally { setRefreshing(false); }
+  }
 
   // Renewal radar: anything in grace, or expiring within 30 days.
   const DAYS_30 = 30 * 86400;
@@ -196,16 +212,28 @@ function Dashboard({ setAccount, lastPay }: { setAccount: (a: string | null) => 
     return (
       <div className="empty">
         <div className="empty-icon"><Icon d={I.card} size={40} /></div>
-        <h2>{restoring ? 'Looking for your names…' : 'No names yet'}</h2>
-        <p className="muted">{restoring
+        <h2>{restoring || refreshing ? 'Looking for your names…' : 'No names yet'}</h2>
+        <p className="muted">{restoring || refreshing
           ? 'Checking the chain for names registered with this account.'
           : "Register a name from the Search tab and it'll show up here to manage. Already own one? Search for it — names you own are added back automatically."}</p>
+        {!restoring && (
+          <button className="ghost" onClick={refreshList} disabled={refreshing}>
+            {refreshing ? 'Checking…' : 'Refresh list'}
+          </button>
+        )}
+        {refreshMsg && <p className="muted small">{refreshMsg}</p>}
       </div>
     );
   }
   return (
     <div className="dash">
-      <h2 className="dash-title">My names <span className="muted">({names.length})</span></h2>
+      <div className="dash-head">
+        <h2 className="dash-title">My names <span className="muted">({names.length})</span></h2>
+        <button className="ghost" onClick={refreshList} disabled={refreshing} title="Re-check the chain for names registered on other devices and refresh every card">
+          {refreshing ? 'Refreshing…' : 'Refresh list'}
+        </button>
+      </div>
+      {refreshMsg && <p className="muted small">{refreshMsg}</p>}
       {lastPay && <p className="muted small">Last payment received: <b>+{lastPay.delta} TRU</b> · {new Date(lastPay.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
       {err && <div className="notice err">{err}</div>}
       {!ready && <p className="muted small">connecting…</p>}
@@ -217,7 +245,7 @@ function Dashboard({ setAccount, lastPay }: { setAccount: (a: string | null) => 
         </div>
       )}
       {names.map((n) => (
-        <OwnedCard key={n.label} label={n.label} name={`${n.label}.tru`} mode={n.mode}
+        <OwnedCard key={`${n.label}:${cardEpoch}`} label={n.label} name={`${n.label}.tru`} mode={n.mode}
           expiry={azns.estimatedExpiry(n)}
           onStatus={(label, s) => setStatuses((prev) => ({ ...prev, [label]: { status: s.status, expiry: s.expiry } }))}
           onChanged={() => setNames(azns.myNames())}
