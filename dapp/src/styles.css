@@ -27,6 +27,28 @@
   --shadow-btn: 0 1px 2px rgba(24, 137, 84, .45), 0 8px 18px rgba(43, 182, 115, .28);
 }
 
+/* ---- dark theme ---------------------------------------------------------- */
+[data-theme="dark"] {
+  --green: #2fc27d;
+  --green-600: #27aa6c;
+  --green-700: #66dba4;   /* readable accent text on dark */
+  --green-50: #14241c;
+  --green-100: #1d3329;
+
+  --ink: #eaf4ee;
+  --text: #c6d4cb;
+  --muted: #8aa093;
+  --line: #233329;
+  --line-2: #1c2a22;
+
+  --card: #111813;
+  --field: #0d130f;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 14px 34px rgba(0, 0, 0, .45);
+  --shadow-btn: 0 1px 2px rgba(0, 0, 0, .5), 0 8px 18px rgba(43, 182, 115, .25);
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -40,7 +62,31 @@ body {
     linear-gradient(180deg, #f3faf5 0%, #ffffff 40%);
   background-attachment: fixed;
   min-height: 100vh;
+  transition: background .2s ease, color .2s ease;
 }
+[data-theme="dark"] body {
+  background:
+    radial-gradient(900px 480px at 12% -8%, #10271b 0%, rgba(16, 39, 27, 0) 60%),
+    radial-gradient(820px 460px at 92% 4%, #0e2218 0%, rgba(14, 34, 24, 0) 55%),
+    linear-gradient(180deg, #0a120d 0%, #080d0a 40%);
+  background-attachment: fixed;
+}
+
+/* dark-mode overrides for hardcoded light surfaces */
+[data-theme="dark"] .search,
+[data-theme="dark"] .tabs,
+[data-theme="dark"] button.ghost,
+[data-theme="dark"] .badge.ghosty,
+[data-theme="dark"] .mode:hover { background: var(--card); }
+[data-theme="dark"] button.ghost { color: var(--green-700); }
+[data-theme="dark"] input:focus, [data-theme="dark"] select:focus { background: #0b110d; }
+[data-theme="dark"] input::placeholder { color: #5f7568; }
+[data-theme="dark"] .notice.err { background: #2a1413; color: #ff9f96; border-color: #4a221f; }
+[data-theme="dark"] .notice.warn, [data-theme="dark"] .grace { background: #271e08; color: #e8b75c; border-color: #463512; }
+[data-theme="dark"] .tag.taken { background: #1e2622; color: var(--muted); }
+[data-theme="dark"] .pill-no { background: #2a1413; color: #ff9f96; }
+[data-theme="dark"] .toast { background: #eaf4ee; color: #10241a; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+[data-theme="dark"] .log { background: #0d130f; }
 
 .wrap { max-width: 760px; margin: 0 auto; padding: 22px 20px 96px; }
 
@@ -299,6 +345,17 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 .keyline b { color: var(--green-700); }
 .accessbox { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
 .accessbox .pay-head { align-items: center; }
+
+/* ---- theme toggle -------------------------------------------------------- */
+.theme-btn {
+  width: 34px; height: 34px; padding: 0; flex: none;
+  display: grid; place-items: center;
+  background: #fff; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 999px;
+  box-shadow: var(--shadow-sm);
+}
+.theme-btn:hover { filter: none; box-shadow: var(--shadow-sm); color: var(--green-700); border-color: var(--green); background: var(--green-50); }
+[data-theme="dark"] .theme-btn { background: var(--card); }
 
 /* ---- payment toast + copyables ------------------------------------------ */
 .toast {
