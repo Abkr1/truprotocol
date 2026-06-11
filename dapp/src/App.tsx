@@ -66,7 +66,11 @@ export default function App() {
         ? <SearchTab setAccount={setAccount} onRegistered={() => setMineCount(azns.myNames().length)} />
         : <Dashboard setAccount={setAccount} />}
 
-      <footer className="foot">Running on {azns.isLocal ? 'a local network' : 'Aztec testnet'} · unaudited demo</footer>
+      <footer className="foot">
+        Running on {azns.isLocal ? 'a local network' : 'Aztec testnet'}
+        {process.env.AZNS_ADDRESS ? <> · registry <span title={process.env.AZNS_ADDRESS}>{short(process.env.AZNS_ADDRESS)}</span></> : null}
+        {' '}· unaudited demo
+      </footer>
     </div>
   );
 }
@@ -129,7 +133,8 @@ function Dashboard({ setAccount }: { setAccount: (a: string | null) => void }) {
       <div className="empty">
         <div className="empty-icon"><Icon d={I.card} size={40} /></div>
         <h2>No names yet</h2>
-        <p className="muted">Register a name from the Search tab and it'll show up here to manage.</p>
+        <p className="muted">Register a name from the Search tab and it'll show up here to manage.
+          Already own one? Search for it — names you own are added back automatically.</p>
       </div>
     );
   }
@@ -260,7 +265,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState('');
   const [info, setInfo] = useState<{ status: number; mine: boolean } | null>(null);
-  const isPublic = mode === undefined || mode === 'PUBLIC';
+  // (isPublic derives from liveMode below, after on-chain state loads)
 
   const [viewer, setViewer] = useState('');
   const [grantTarget, setGrantTarget] = useState('');
@@ -268,13 +273,18 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
 
   const refresh = () => azns.nameStatus(label).then(setInfo).catch(() => {});
   useEffect(() => { refresh(); }, [label]);
-  useEffect(() => {
-    if (mode === 'STEALTH') azns.hasStealthKey(label).then(setKeyPublished).catch(() => {});
-  }, [label, mode]);
 
   const status = info?.status ?? null;
   const owned = justClaimed === true || info?.mine === true;
   const checkedNotMine = info !== null && !owned;
+  // On-chain mode/expiry win over whatever local storage remembered.
+  const liveMode: ModeName = info?.mode ?? mode ?? 'PUBLIC';
+  const liveExpiry = info?.expiry ?? expiry ?? null;
+  const isPublic = liveMode === 'PUBLIC';
+
+  useEffect(() => {
+    if (liveMode === 'STEALTH') azns.hasStealthKey(label).then(setKeyPublished).catch(() => {});
+  }, [label, liveMode]);
 
   async function save() {
     setBusy(true); setStep('');
@@ -290,7 +300,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
   }
   async function renew() {
     setBusy(true); setStep('');
-    try { await azns.renew(label, mode ?? 'PUBLIC', 1, setStep); setStep('Renewed +1 year.'); refresh(); onChanged(); }
+    try { await azns.renew(label, liveMode, 1, setStep); setStep('Renewed +1 year.'); refresh(); onChanged(); }
     catch (e: any) { setStep(`Couldn't renew: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
@@ -319,7 +329,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
         <span className="rc-name">{name}</span>
         <span className="rc-tags">
           {status !== null && <span className={`tag ${status === 1 ? 'avail' : 'taken'}`}>{STATUS_LABEL[status] ?? '—'}</span>}
-          <span className="mode-chip">{(mode ?? 'PUBLIC').toLowerCase()}</span>
+          <span className="mode-chip">{liveMode.toLowerCase()}</span>
           {owned && <span className="tag mine"><Icon d={I.check} size={12} />{justClaimed ? 'Registered' : 'Yours'}</span>}
         </span>
       </div>
@@ -335,7 +345,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
           {owned && (
             (status === 2)
               ? <p className="grace"><Icon d={I.warn} size={14} /> Expired — in its grace period. Renew now to keep it.</p>
-              : (expiry ? <p className="muted small">Expires <b>{fmtDate(expiry)}</b> · {fmtRel(expiry)}</p> : null)
+              : (liveExpiry ? <p className="muted small">Expires <b>{fmtDate(liveExpiry)}</b> · {fmtRel(liveExpiry)}</p> : null)
           )}
 
           {isPublic ? (
@@ -351,10 +361,10 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
               <RecordsManager label={label} />
               <div className="row">
                 <button className="ghost" onClick={lookup} disabled={busy}>Look up Aztec</button>
-                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(mode ?? 'PUBLIC')})</button>
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(liveMode)})</button>
               </div>
             </>
-          ) : mode === 'STEALTH' ? (
+          ) : liveMode === 'STEALTH' ? (
             <>
               <p className="muted">A <b>stealth</b> name accepts payments from anyone while keeping every payment
                 off the explorer. Publish your stealth key so wallets can derive fresh, unlinkable payment
@@ -367,7 +377,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
               </div>
               <div className="row">
                 {!keyPublished && <button onClick={publishStealth} disabled={busy}>Publish stealth key</button>}
-                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(mode ?? 'PUBLIC')})</button>
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(liveMode)})</button>
               </div>
             </>
           ) : (
@@ -385,7 +395,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onChanged, onForget
                 </div>
               </label>
               <div className="row">
-                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(mode ?? 'PUBLIC')})</button>
+                <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(liveMode)})</button>
               </div>
             </>
           )}

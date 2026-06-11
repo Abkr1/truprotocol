@@ -170,6 +170,12 @@ export async function search(raw: string): Promise<SearchResult> {
   const status = Number(await sim(conn!.azns.methods.lease_status(nh)));
   const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
   const mine = !owner.isZero() && owner.equals(conn!.account);
+  if (mine && !myNames().some((n) => n.label === label)) {
+    // Searching a name you own re-adds it to "My names" (recovers the list
+    // after a cleared browser, a new device, etc.). Mode comes from the chain.
+    const modeNum = Number(await sim(conn!.azns.methods.mode_of(nh)));
+    recordName(label, MODE_NAMES[modeNum] ?? 'PUBLIC');
+  }
   return { label, name, len, tooShort: false, tooLong: false, available: status === 0, status, mine };
 }
 
@@ -189,13 +195,16 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
 
 // ---- "My names": tracked client-side (the chain stores hashes, not labels) ----
 // The chain stores only name *hashes*, so a wallet cannot enumerate the labels
-// it owns. We remember them per-browser in localStorage with enough metadata to
-// show an expiry estimate. On-chain lease_status + owner_of stay the source of
-// truth for status and ownership (the estimate is only for display).
-const LS_NAMES = 'azns.mynames';
+// it owns. We remember them per-browser in localStorage, SCOPED TO THE REGISTRY
+// CONTRACT - a redeploy (new address, fresh state) must never show names from
+// an old deployment. On-chain lease_status/owner_of/mode_of/expiry_of are the
+// source of truth; searching a name you own re-adds it to the list automatically.
+const REGISTRY_TAG = (process.env.AZNS_ADDRESS || 'local').toLowerCase().slice(0, 14);
+const LS_NAMES = `azns.mynames.${REGISTRY_TAG}`;
 export type MyName = { label: string; mode: ModeName; registeredAt?: number; years?: number };
 
 export function myNames(): MyName[] {
+  globalThis.localStorage?.removeItem('azns.mynames'); // pre-scoping legacy key
   try {
     const list = JSON.parse(lsGet(LS_NAMES) || '[]');
     return Array.isArray(list) ? list.filter((n) => n && typeof n.label === 'string') : [];
@@ -222,13 +231,21 @@ export function recordRenewal(label: string, addYears = 1) {
 export function estimatedExpiry(n: MyName): number | null {
   return n.registeredAt ? n.registeredAt + (n.years ?? 1) * Number(ONE_YEAR_SECS) : null;
 }
-/** On-chain status for a name: 0 available, 1 active, 2 grace; + is it mine. */
-export async function nameStatus(label: string): Promise<{ status: number; mine: boolean }> {
+const MODE_NAMES: ModeName[] = ['PUBLIC', 'SELECTIVE', 'STEALTH'];
+
+/** Full on-chain state for a name: lease status, ownership, mode and expiry.
+ *  This is the source of truth the dashboard renders from (local storage only
+ *  remembers which labels to ask about). */
+export async function nameStatus(label: string): Promise<{ status: number; mine: boolean; mode: ModeName | null; expiry: number | null }> {
   await connect();
   const nh = await nameHash(label);
   const status = Number(await sim(conn!.azns.methods.lease_status(nh)));
   const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
-  return { status, mine: !owner.isZero() && owner.equals(conn!.account) };
+  const mine = !owner.isZero() && owner.equals(conn!.account);
+  if (status === 0) return { status, mine, mode: null, expiry: null };
+  const modeNum = Number(await sim(conn!.azns.methods.mode_of(nh)));
+  const expiry = Number(await sim(conn!.azns.methods.expiry_of(nh)));
+  return { status, mine, mode: MODE_NAMES[modeNum] ?? null, expiry: expiry > 0 ? expiry : null };
 }
 
 export async function resolvePublic(raw: string): Promise<string> {
@@ -432,7 +449,9 @@ export async function payPrivately(raw: string, amount: bigint, onStep: (m: stri
 }
 
 // ---- Stealth meta-key (publish + status) -------------------------------------
-const lsStealth = (name: string) => `azns.stealth.${name}`;
+// Scoped to the registry like the names list: a key published on one deployment
+// must not silently resurface on another.
+const lsStealth = (name: string) => `azns.stealth.${REGISTRY_TAG}.${name}`;
 export async function publishStealth(raw: string, onStep: (m: string) => void = () => {}) {
   await connect(); await ensureWritable(onStep);
   const { Grumpkin } = await import('@aztec/foundation/crypto/grumpkin');

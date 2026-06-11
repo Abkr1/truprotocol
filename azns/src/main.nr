@@ -302,6 +302,20 @@ pub contract AZNS {
         self.storage.owners.at(name_hash).read()
     }
 
+    // Mode + expiry views so clients can render a name's true on-chain state
+    // (dashboards must not have to trust local storage for these).
+    #[external("public")]
+    #[view]
+    fn mode_of(name_hash: Field) -> u8 {
+        self.storage.mode.at(name_hash).read()
+    }
+
+    #[external("public")]
+    #[view]
+    fn expiry_of(name_hash: Field) -> u64 {
+        self.storage.expiry.at(name_hash).read()
+    }
+
     // ---- MULTICHAIN ADDRESS RECORDS (ENS-style) ----------------------------
     // Point a public name at an address on any chain, keyed by coin type. The
     // name lives on Aztec; the pointer can be anywhere (Ethereum, Solana, ...).

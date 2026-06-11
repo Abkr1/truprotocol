@@ -70,6 +70,10 @@ unconstrained fn anyone_can_register() {
     assert(status == 1, "freshly registered name must be active");
     let epoch = env.view_public(AZNS::at(azns).current_epoch(name));
     assert(epoch == 1, "first registration must bump the epoch to 1");
+    let mode = env.view_public(AZNS::at(azns).mode_of(name));
+    assert(mode == 0, "mode_of must report the registered mode");
+    let expiry = env.view_public(AZNS::at(azns).expiry_of(name));
+    assert(expiry > 0, "expiry_of must report a future expiry");
 }
 
 // An active name cannot be taken over.
