@@ -48,9 +48,9 @@ price is tiered by **privacy mode** (more privacy, higher price):
 
 | Mode       | Price / year |
 |------------|--------------|
-| Public     | $30          |
-| Selective  | $100         |
-| Stealth    | $200         |
+| Public     | $10          |
+| Selective  | $50          |
+| Stealth    | $100         |
 
 Labels are 3–31 characters; both bounds are enforced on-chain.
 

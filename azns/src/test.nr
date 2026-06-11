@@ -133,7 +133,7 @@ unconstrained fn register_rejects_long_label() {
     env.call_private(alice, AZNS::at(azns).register(999, 32, alice, 1, 0));
 }
 
-// Pricing is per mode (PUBLIC $30 / SELECTIVE $100 / STEALTH $200 a year);
+// Pricing is per mode (PUBLIC $10 / SELECTIVE $50 / STEALTH $100 a year);
 // an out-of-range mode is rejected on the charge path by price_for_mode.
 #[test(should_fail_with = "invalid mode")]
 unconstrained fn register_rejects_invalid_mode() {

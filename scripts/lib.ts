@@ -73,9 +73,9 @@ export const MAX_LABEL = 31;
 
 /** Annual price in USD cents per privacy mode — mirrors the contract. */
 export const PRICE_CENTS: Record<ModeName, number> = {
-  PUBLIC: 3000,      // $30/yr
-  SELECTIVE: 10000,  // $100/yr
-  STEALTH: 20000,    // $200/yr
+  PUBLIC: 1000,      // $10/yr
+  SELECTIVE: 5000,   // $50/yr
+  STEALTH: 10000,    // $100/yr
 };
 export function priceCentsForMode(mode: ModeName): number {
   return PRICE_CENTS[mode];
