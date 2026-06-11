@@ -168,8 +168,8 @@ function SearchTab({ setAccount, onRegistered }: { setAccount: (a: string | null
       {!result && !error && (
         <div className="features">
           <Feature icon={I.globe} title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Ethereum, and more." />
-          <Feature icon={I.eye} title="Selective & stealth" text="Show a different address per viewer, or accept private payments to a hidden address." />
-          <Feature icon={I.shield} title="Permissionless" text="No KYC, no identity checks, no gatekeepers — anyone can register any available name." />
+          <Feature icon={I.eye} title="Selective" text="Resolves only for people you grant — and each viewer can be shown a different address." />
+          <Feature icon={I.shield} title="Stealth" text="Anyone can pay you, while every payment stays hidden and unlinkable on-chain." />
         </div>
       )}
     </>
