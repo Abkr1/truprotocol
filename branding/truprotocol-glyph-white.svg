@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- truProtocol "t" glyph only, white on transparent -
+       for watermarks and dark/colored surfaces. -->
+  <path d="M236 140 V 312 q0 62 62 62 h20" fill="none" stroke="#ffffff"
+        stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M160 226 H 318" fill="none" stroke="#ffffff"
+        stroke-width="62" stroke-linecap="round"/>
+</svg>

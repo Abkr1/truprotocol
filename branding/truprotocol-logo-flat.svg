@@ -1,0 +1,9 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- truProtocol mark - flat single-color variant (brand green #2bb673).
+       For contexts where gradients are unavailable (print, embroidery, etc). -->
+  <rect x="16" y="16" width="480" height="480" rx="140" fill="#2bb673"/>
+  <path d="M236 140 V 312 q0 62 62 62 h20" fill="none" stroke="#ffffff"
+        stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M160 226 H 318" fill="none" stroke="#ffffff"
+        stroke-width="62" stroke-linecap="round"/>
+</svg>
