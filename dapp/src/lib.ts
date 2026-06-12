@@ -65,9 +65,9 @@ export function unpackLabel(v: bigint): string {
 
 /** Annual price in USD cents per privacy mode - mirrors the contract. */
 export const PRICE_CENTS: Record<ModeName, number> = {
-  PUBLIC: 1000,      // $10/yr
-  SELECTIVE: 5000,   // $50/yr
-  STEALTH: 10000,    // $100/yr
+  PUBLIC: 2100,      // $21/yr (flat across modes)
+  SELECTIVE: 2100,   // $21/yr
+  STEALTH: 2100,     // $21/yr
 };
 export const priceUsdForMode = (mode: ModeName): number => PRICE_CENTS[mode] / 100;
 

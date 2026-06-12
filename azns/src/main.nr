@@ -69,14 +69,14 @@ pub contract AZNS {
     // ---- LEASE ECONOMICS ----------------------------------------------------
     // Annual price per name, by PRIVACY MODE, expressed in USD CENTS so it's an
     // integer. The contract collects in a token, so a USD->token conversion must
-    // happen at the fee hook (see _charge stub). Prices:
-    //   PUBLIC    : $10/yr   ( 1000 cents)
-    //   SELECTIVE : $50/yr   ( 5000 cents)
-    //   STEALTH   : $100/yr  (10000 cents)
+    // happen at the fee hook (see _charge stub). Prices (currently flat):
+    //   PUBLIC    : $21/yr  (2100 cents)
+    //   SELECTIVE : $21/yr  (2100 cents)
+    //   STEALTH   : $21/yr  (2100 cents)
     // Names shorter than 3 chars are not sold (premium/reserved).
-    global PRICE_PUBLIC_CENTS: u64 = 1000;
-    global PRICE_SELECTIVE_CENTS: u64 = 5000;
-    global PRICE_STEALTH_CENTS: u64 = 10000;
+    global PRICE_PUBLIC_CENTS: u64 = 2100;
+    global PRICE_SELECTIVE_CENTS: u64 = 2100;
+    global PRICE_STEALTH_CENTS: u64 = 2100;
     global MIN_LABEL_LEN: u32 = 3;
     // Labels are 3..=31 characters. Like the minimum, the maximum is enforced
     // trustlessly: label_len is bound into name_hash off-chain (lib.ts), so
