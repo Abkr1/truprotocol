@@ -94,10 +94,8 @@ body {
 .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }
 .brand { display: flex; align-items: center; gap: 11px; }
 .logo {
-  width: 36px; height: 36px; border-radius: 11px;
-  background: linear-gradient(145deg, #43d089, var(--green-600));
+  width: 36px; height: 36px; border-radius: 11px; display: block;
   box-shadow: var(--shadow-btn);
-  display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 18px;
 }
 .brand b { font-size: 17px; color: var(--ink); letter-spacing: -0.2px; font-weight: 700; }
 .badge {

@@ -100,7 +100,8 @@ export default function App() {
     <div className="wrap">
       <div className="topbar">
         <div className="brand" onClick={() => setTab('search')} role="button">
-          <span className="logo">t</span><b>truProtocol</b>
+          <img className="logo" src="/truprotocol-logo-64.png" alt="truProtocol" width={36} height={36} />
+          <b>truProtocol</b>
         </div>
         <nav className="tabs">
           <button className={tab === 'search' ? 'on' : ''} onClick={() => setTab('search')}>Search</button>

@@ -1,0 +1,25 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- truProtocol official mark - master vector.
+       Brand gradient matches the dApp logo: #43d089 -> #1fa365 (green-600).
+       The "t" is pure geometry (stroked paths), no font dependency. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#43d089"/>
+      <stop offset="1" stop-color="#1fa365"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="140" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="140" fill="url(#sheen)"/>
+
+  <!-- lowercase t: stem with curved foot + crossbar -->
+  <path d="M236 140 V 312 q0 62 62 62 h20" fill="none" stroke="#ffffff"
+        stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M160 226 H 318" fill="none" stroke="#ffffff"
+        stroke-width="62" stroke-linecap="round"/>
+</svg>
