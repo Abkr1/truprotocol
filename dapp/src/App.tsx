@@ -166,11 +166,14 @@ function SearchTab({ setAccount, onRegistered }: { setAccount: (a: string | null
       {error && <div className="notice err">{error}</div>}
       {result && <ResultCard result={result} onChanged={() => doSearch(query)} setAccount={setAccount} onRegistered={onRegistered} />}
       {!result && !error && (
-        <div className="features">
-          <Feature icon={I.globe} title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Bitcoin, Ethereum, and more." />
-          <Feature icon={I.eye} title="Selective" text="Resolves only for people you grant — and each viewer can be shown a different address." />
-          <Feature icon={I.shield} title="Stealth" text="Anyone can pay you, while every payment stays hidden and unlinkable on-chain." />
-        </div>
+        <>
+          <div className="features">
+            <Feature icon={I.globe} title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Bitcoin, Ethereum, and more." />
+            <Feature icon={I.eye} title="Selective" text="Resolves only for people you grant — and each viewer can be shown a different address." />
+            <Feature icon={I.shield} title="Stealth" text="Anyone can pay you, while every payment stays hidden and unlinkable on-chain." />
+          </div>
+          <HowItWorks />
+        </>
       )}
     </>
   );
@@ -275,6 +278,50 @@ function Feature({ icon, title, text }: { icon: JSX.Element; title: string; text
       <div className="fi"><Icon d={icon} size={22} /></div>
       <div><h3>{title}</h3><p>{text}</p></div>
     </div>
+  );
+}
+
+/** Plain-words story of each mode, starring Alice and her payers. */
+function HowItWorks() {
+  const stories: { icon: JSX.Element; mode: ModeName; title: string; who: string; story: JSX.Element }[] = [
+    {
+      icon: I.globe, mode: 'PUBLIC', title: 'Public', who: 'Anyone can find her',
+      story: <>Alice opens a bakery and registers <b>alicebakery.tru</b> as Public. Bob, Carol — anyone —
+        can look it up and pay her on Aztec, Bitcoin or Ethereum. The address is out in the open like a
+        shop sign, but the payments themselves stay private.</>,
+    },
+    {
+      icon: I.eye, mode: 'SELECTIVE', title: 'Selective', who: 'Only people she picks',
+      story: <>Alice consults privately, so <b>aliceadvisory.tru</b> is Selective: to the world it resolves
+        to nothing. She grants Bob access and he sees one address; Carol is granted and sees a
+        <b> different</b> one. They can't even tell they're paying the same person — and Alice can revoke
+        anyone, anytime.</>,
+    },
+    {
+      icon: I.shield, mode: 'STEALTH', title: 'Stealth', who: 'No one — money still arrives',
+      story: <>Alice collects tips at <b>ghostline.tru</b> in Stealth mode. Anyone can pay without asking —
+        Bob today, a stranger tomorrow — and each payment lands at a fresh address only Alice can find.
+        Even payers comparing notes learn nothing.</>,
+    },
+  ];
+  return (
+    <section className="how">
+      <h2 className="how-title">How the three modes work</h2>
+      <p className="muted center how-sub">Same names, three privacy levels — here's Alice using each one.</p>
+      {stories.map((s) => (
+        <div className="how-card" key={s.mode}>
+          <div className="how-head">
+            <span className="fi"><Icon d={s.icon} size={20} /></span>
+            <b>{s.title}</b>
+            <em className="mode-price">${priceUsdForMode(s.mode)}/yr</em>
+            <span className="who">{s.who}</span>
+          </div>
+          <p>{s.story}</p>
+        </div>
+      ))}
+      <p className="muted small center">In every mode, Aztec keeps the payment itself private — no sender,
+        recipient or amount ever appears on-chain.</p>
+    </section>
   );
 }
 

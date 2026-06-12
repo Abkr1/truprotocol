@@ -290,6 +290,30 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 .feature h3 { margin: 0 0 4px; font-size: 14.5px; color: var(--ink); }
 .feature p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 
+/* ---- "How it works" stories --------------------------------------------- */
+.how { max-width: 640px; margin: 52px auto 0; }
+.how-title { text-align: center; font-size: 22px; color: var(--ink); letter-spacing: -0.4px; margin: 0 0 6px; }
+.how-sub { margin: 0 0 18px; font-size: 14px; }
+.how-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+  padding: 16px 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm);
+}
+.how-card p { margin: 10px 0 0; font-size: 14px; line-height: 1.65; color: var(--text); }
+.how-card b { color: var(--ink); }
+.how-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.how-head > b { font-size: 15px; color: var(--ink); }
+.how-head .fi {
+  width: 34px; height: 34px; border-radius: 11px; flex: none;
+  background: var(--green-50); border: 1px solid var(--green-100); color: var(--green-700);
+  display: grid; place-items: center;
+}
+.who {
+  margin-left: auto; font-size: 11.5px; font-weight: 700; color: var(--muted);
+  background: var(--field); border: 1px solid var(--line);
+  padding: 3px 10px; border-radius: 999px;
+}
+.how .small.center { margin-top: 14px; }
+
 .foot { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 56px; }
 
 .paybox { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
