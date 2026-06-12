@@ -1,0 +1,55 @@
+<svg width="1500" height="500" viewBox="0 0 1500 500" xmlns="http://www.w3.org/2000/svg">
+  <!-- truProtocol Twitter/X header (1500x500), dark brand theme. -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c150f"/>
+      <stop offset="1" stop-color="#080d0a"/>
+    </linearGradient>
+    <radialGradient id="glowL" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#1c5a3c" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#1c5a3c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowR" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#15402b" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#15402b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#43d089"/>
+      <stop offset="1" stop-color="#1fa365"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background -->
+  <rect width="1500" height="500" fill="url(#bgGrad)"/>
+  <ellipse cx="280" cy="60" rx="560" ry="300" fill="url(#glowL)"/>
+  <ellipse cx="1260" cy="430" rx="620" ry="330" fill="url(#glowR)"/>
+
+  <!-- faint oversized t-glyph watermark, right side -->
+  <g transform="translate(1130,-20) scale(1.15)" opacity="0.05">
+    <path d="M236 140 V 312 q0 62 62 62 h20" fill="none" stroke="#ffffff"
+          stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M160 226 H 318" fill="none" stroke="#ffffff" stroke-width="62" stroke-linecap="round"/>
+  </g>
+
+  <!-- lockup: mark + wordmark + tagline -->
+  <g transform="translate(382,160)">
+    <!-- the mark at 150px -->
+    <g transform="scale(0.3125)">
+      <rect x="16" y="16" width="480" height="480" rx="140" fill="url(#mark)"/>
+      <rect x="16" y="16" width="480" height="480" rx="140" fill="url(#sheen)"/>
+      <path d="M236 140 V 312 q0 62 62 62 h20" fill="none" stroke="#ffffff"
+            stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M160 226 H 318" fill="none" stroke="#ffffff" stroke-width="62" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <text x="566" y="266" font-family="Inter, 'DejaVu Sans', sans-serif" font-weight="700"
+        font-size="92" letter-spacing="-2" fill="#eaf4ee">truProtocol</text>
+  <text x="570" y="330" font-family="Inter, 'DejaVu Sans', sans-serif" font-weight="400"
+        font-size="30" letter-spacing="0.5" fill="#8aa093">Private names on Aztec — Public · Selective · Stealth</text>
+</svg>

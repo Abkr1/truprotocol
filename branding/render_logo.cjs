@@ -7,6 +7,10 @@ const jobs = [
   { src: 'truprotocol-logo-flat.svg', name: 'truprotocol-logo-flat', sizes: [512] },
   { src: 'truprotocol-glyph-white.svg', name: 'truprotocol-glyph-white', sizes: [512] },
 ];
+// Fixed-dimension renders (social headers etc): [width, height, suffix]
+const wide = [
+  { src: 'truprotocol-header-dark.svg', name: 'truprotocol-header-dark', dims: [[1500, 500, ''], [3000, 1000, '@2x']] },
+];
 (async () => {
   for (const j of jobs) {
     const svg = fs.readFileSync(`${B}/${j.src}`);
@@ -14,6 +18,14 @@ const jobs = [
       const density = Math.max(72, Math.ceil((72 * s) / 512) * 4); // supersample for crisp small sizes
       await sharp(svg, { density }).resize(s, s).png().toFile(`${B}/${j.name}-${s}.png`);
       console.log('wrote', j.name, s);
+    }
+  }
+  for (const j of wide) {
+    const svg = fs.readFileSync(`${B}/${j.src}`);
+    for (const [w, h, suffix] of j.dims) {
+      const density = Math.max(72, Math.ceil((72 * w) / 1500) * 2);
+      await sharp(svg, { density }).resize(w, h).png().toFile(`${B}/${j.name}${suffix}.png`);
+      console.log('wrote', j.name, w, 'x', h);
     }
   }
   console.log('RENDER_DONE');
