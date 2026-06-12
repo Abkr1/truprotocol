@@ -281,33 +281,33 @@ function Feature({ icon, title, text }: { icon: JSX.Element; title: string; text
   );
 }
 
-/** Plain-words story of each mode, starring Alice and her payers. */
+/** Plain-words story of each mode, starring Bob and his payers. */
 function HowItWorks() {
   const stories: { icon: JSX.Element; mode: ModeName; title: string; who: string; story: JSX.Element }[] = [
     {
-      icon: I.globe, mode: 'PUBLIC', title: 'Public', who: 'Anyone can find her',
-      story: <>Alice opens a bakery and registers <b>alicebakery.tru</b> as Public. Bob, Carol — anyone —
-        can look it up and pay her on Aztec, Bitcoin or Ethereum. The address is out in the open like a
+      icon: I.globe, mode: 'PUBLIC', title: 'Public', who: 'Anyone can find him',
+      story: <>Bob opens a bakery and registers <b>bobsbakery.tru</b> as Public. Alice, Carol — anyone —
+        can look it up and pay him on Aztec, Bitcoin or Ethereum. The address is out in the open like a
         shop sign, but the payments themselves stay private.</>,
     },
     {
-      icon: I.eye, mode: 'SELECTIVE', title: 'Selective', who: 'Only people she picks',
-      story: <>Alice consults privately, so <b>aliceadvisory.tru</b> is Selective: to the world it resolves
-        to nothing. She grants Bob access and he sees one address; Carol is granted and sees a
-        <b> different</b> one. They can't even tell they're paying the same person — and Alice can revoke
+      icon: I.eye, mode: 'SELECTIVE', title: 'Selective', who: 'Only people he picks',
+      story: <>Bob consults privately, so <b>bobadvisory.tru</b> is Selective: to the world it resolves
+        to nothing. He grants Alice access and she sees one address; Carol is granted and sees a
+        <b> different</b> one. They can't even tell they're paying the same person — and Bob can revoke
         anyone, anytime.</>,
     },
     {
       icon: I.shield, mode: 'STEALTH', title: 'Stealth', who: 'No one — money still arrives',
-      story: <>Alice collects tips at <b>ghostline.tru</b> in Stealth mode. Anyone can pay without asking —
-        Bob today, a stranger tomorrow — and each payment lands at a fresh address only Alice can find.
+      story: <>Bob collects tips at <b>ghostline.tru</b> in Stealth mode. Anyone can pay without asking —
+        Alice today, a stranger tomorrow — and each payment lands at a fresh address only Bob can find.
         Even payers comparing notes learn nothing.</>,
     },
   ];
   return (
     <section className="how">
       <h2 className="how-title">How the three modes work</h2>
-      <p className="muted center how-sub">Same names, three privacy levels — here's Alice using each one.</p>
+      <p className="muted center how-sub">Same names, three privacy levels — here's Bob using each one.</p>
       {stories.map((s) => (
         <div className="how-card" key={s.mode}>
           <div className="how-head">
