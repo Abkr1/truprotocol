@@ -10,6 +10,7 @@ identically everywhere.
 | `truprotocol-logo-<size>.png` | Rasters: 1024/512/256/128/64/48/32/16. 1024 for stores/social, 512 for app icons, 32+16 for favicons. |
 | `truprotocol-logo-flat.svg` / `-flat-512.png` | Single-color variant (`#2bb673`) for print/embroidery/strict contexts. |
 | `truprotocol-glyph-white.svg` / `-512.png` | The bare white "t" on transparency, for watermarks and dark surfaces. |
+| `truprotocol-header-dark.svg` / `.png` / `@2x.png` | Twitter/X profile header (1500x500, plus 3000x1000). Wordmark needs the Inter font installed when re-rendering. |
 
 Brand colors: gradient `#43d089 -> #1fa365`; flat green `#2bb673`; glyph `#ffffff`.
 Corner radius is ~29% of the square (rx 140 at 480).
