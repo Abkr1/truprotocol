@@ -221,8 +221,11 @@ const REGISTRY_TAG = (process.env.AZNS_ADDRESS || 'local').toLowerCase().slice(0
 const LS_NAMES = `azns.mynames.${REGISTRY_TAG}`;
 export type MyName = { label: string; mode: ModeName; registeredAt?: number; years?: number };
 
+// One-time migration: drop the pre-scoping global names key (replaced by the
+// per-registry LS_NAMES). Runs once on module load, not on every read.
+try { globalThis.localStorage?.removeItem('azns.mynames'); } catch { /* no localStorage */ }
+
 export function myNames(): MyName[] {
-  globalThis.localStorage?.removeItem('azns.mynames'); // pre-scoping legacy key
   try {
     const list = JSON.parse(lsGet(LS_NAMES) || '[]');
     return Array.isArray(list) ? list.filter((n) => n && typeof n.label === 'string') : [];
@@ -469,6 +472,9 @@ export async function getTestTokens(amount: bigint, onStep: (m: string) => void 
   onStep('Minting test tokens to you…');
   const token = await TokenContract.at(AztecAddress.fromString(addr), conn!.wallet);
   await send(token.methods.mint_to_private(conn!.account, amount));
+  // This credit is a self-mint, not an incoming payment - tell the watcher to
+  // absorb the next balance increase silently (no "Payment received" toast).
+  suppressIncreaseUntil = Date.now() + 5 * 60 * 1000;
   return addr;
 }
 
@@ -486,6 +492,8 @@ export async function tokenBalance(): Promise<bigint | null> {
 // private balance in the background and reports increases, so owners of stealth
 // (or any) names see "payment received" without checking anything by hand.
 let watcherTimer: ReturnType<typeof setInterval> | null = null;
+// Set by getTestTokens so a self-mint's balance bump isn't reported as a payment.
+let suppressIncreaseUntil = 0;
 export function startPaymentWatcher(
   onPayment: (delta: bigint, balance: bigint) => void,
   onBalance?: (balance: bigint) => void,
@@ -499,7 +507,10 @@ export function startPaymentWatcher(
       const bal = await tokenBalance();
       if (bal === null) return;
       onBalance?.(bal);
-      if (last !== null && bal > last) onPayment(bal - last, bal);
+      if (last !== null && bal > last) {
+        if (Date.now() < suppressIncreaseUntil) suppressIncreaseUntil = 0; // self-mint: absorb once
+        else onPayment(bal - last, bal);
+      }
       last = bal;
     } catch { /* node hiccup - try again next tick */ }
   };

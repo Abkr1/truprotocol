@@ -88,6 +88,16 @@ unconstrained fn label_backup_roundtrip() {
     assert(labels[0] == label, "label note must round-trip via my_labels");
 }
 
+// You can only register a name to yourself - bob can't register a name with
+// alice as the owner.
+#[test(should_fail_with = "owner must be the caller")]
+unconstrained fn cannot_register_for_someone_else() {
+    let (mut env, azns) = setup();
+    let alice = env.create_light_account();
+    let bob = env.create_light_account();
+    env.call_private(bob, AZNS::at(azns).register(999, 0, 5, alice, 1, 0));
+}
+
 // An active name cannot be taken over.
 #[test(should_fail_with = "name registered or in grace period")]
 unconstrained fn active_name_cannot_be_taken() {

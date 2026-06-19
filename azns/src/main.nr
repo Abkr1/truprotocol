@@ -170,6 +170,11 @@ pub contract AZNS {
         duration_years: u64,
         mode: u8,
     ) {
+        // You can only register a name to YOURSELF. Without this, anyone could
+        // assign ownership (and a label-backup note, and - once _charge is wired
+        // - the fee) to an arbitrary `owner` they don't control.
+        assert(owner.eq(self.msg_sender()), "owner must be the caller");
+
         // Pricing is by MODE. The mode passed here is the one _finalize writes
         // to storage, so the price charged always matches the mode received -
         // there is nothing to lie about. label_len is bound into name_hash
