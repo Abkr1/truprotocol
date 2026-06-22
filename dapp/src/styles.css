@@ -278,7 +278,7 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 .field .row input { flex: 1; }
 
 /* ---- feature strip (empty state) -------------------------------------- */
-.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 760px; margin: 40px auto 0; }
+.features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; max-width: 540px; margin: 40px auto 0; }
 .feature { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: var(--shadow-sm); }
 .feature .fi {
   width: 40px; height: 40px; margin-bottom: 10px; border-radius: 13px;
