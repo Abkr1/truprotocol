@@ -333,33 +333,6 @@ export async function setPublicTarget(raw: string, target: string, onStep: (m: s
   await send(conn!.azns.methods.set_public_target(await nameHash(raw), to));
 }
 
-// ---- Selective mode: per-viewer grants ---------------------------------------
-// The owner privately mints a resolution capability to a specific viewer; only
-// that viewer can decrypt it. Nothing about who can resolve what appears on-chain.
-
-/** Grant a viewer the (private) ability to resolve this selective name to `target`. */
-export async function grantAccess(raw: string, viewer: string, target: string, onStep: (m: string) => void = () => {}) {
-  await connect(); await ensureWritable(onStep);
-  const nh = await nameHash(raw);
-  const viewerAddr = await resolveNameOrAddress(viewer, "viewer's address");
-  const targetAddr = await resolveNameOrAddress(target, 'target address');
-  onStep('Reading the name epoch…');
-  const epoch = BigInt((await sim(conn!.azns.methods.current_epoch(nh))).toString());
-  const expiry = nowSecs() + ONE_YEAR_SECS; // capability valid for a year
-  onStep('Granting access (private)…');
-  await send(conn!.azns.methods.grant(nh, viewerAddr, targetAddr, expiry, epoch));
-}
-
-/** What a selective name resolves to FOR ME (the connected viewer). '' if no access. */
-export async function myAccess(raw: string): Promise<string> {
-  await connect();
-  const nh = await nameHash(raw);
-  const epoch = BigInt((await sim(conn!.azns.methods.current_epoch(nh))).toString());
-  const out = await sim(conn!.azns.methods.my_resolution(nh, epoch));
-  const addr = toAddr(out);
-  return addr.isZero() ? '' : addr.toString();
-}
-
 /** Renew a lease. The contract prices by mode and verifies the claimed mode
  *  against public storage, so a wrong mode here reverts (no underpaying). */
 export async function renew(raw: string, mode: ModeName, years: number, onStep: (m: string) => void = () => {}) {
@@ -536,7 +509,7 @@ export async function payPrivately(raw: string, amount: bigint, onStep: (m: stri
   if (!addr) throw new Error('No token yet — click "Get test tokens" first.');
   onStep('Resolving name…');
   const dest = await payTarget(raw);
-  if (!dest) throw new Error('This name does not accept direct payments (selective names resolve per-viewer).');
+  if (!dest) throw new Error('This name has no payable address yet.');
   onStep('Sending a private transfer…');
   const token = await tokenAt(addr);
   await send(token.methods.transfer(dest.to, amount)); // PRIVATE transfer only

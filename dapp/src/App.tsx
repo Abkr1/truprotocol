@@ -170,7 +170,6 @@ function SearchTab({ setAccount, onRegistered }: { setAccount: (a: string | null
         <>
           <div className="features">
             <Feature icon={I.globe} title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Bitcoin, Ethereum, and more." />
-            <Feature icon={I.eye} title="Selective" text="Resolves only for people you grant — and each viewer can be shown a different address." />
             <Feature icon={I.shield} title="Stealth" text="Anyone can pay you, while every payment stays hidden and unlinkable on-chain." />
           </div>
           <HowItWorks />
@@ -292,13 +291,6 @@ function HowItWorks() {
         shop sign, but the payments themselves stay private.</>,
     },
     {
-      icon: I.eye, mode: 'SELECTIVE', title: 'Selective', who: 'Only people he picks',
-      story: <>Bob consults privately, so <b>bobadvisory.tru</b> is Selective: to the world it resolves
-        to nothing. He grants Alice access and she sees one address; Carol is granted and sees a
-        <b> different</b> one. They can't even tell they're paying the same person — and only the people
-        Bob chooses can resolve it at all.</>,
-    },
-    {
       icon: I.shield, mode: 'STEALTH', title: 'Stealth', who: 'No one — money still arrives',
       story: <>Bob collects tips at <b>ghostline.tru</b> in Stealth mode. Anyone can pay without asking —
         Alice today, a stranger tomorrow — and each payment lands at a fresh address only Bob can find.
@@ -307,8 +299,8 @@ function HowItWorks() {
   ];
   return (
     <section className="how">
-      <h2 className="how-title">How the three modes work</h2>
-      <p className="muted center how-sub">Same names, three privacy levels — here's Bob using each one.</p>
+      <h2 className="how-title">How the two modes work</h2>
+      <p className="muted center how-sub">Same names, two privacy levels — here's Bob using each one.</p>
       {stories.map((s) => (
         <div className="how-card" key={s.mode}>
           <div className="how-head">
@@ -328,7 +320,6 @@ function HowItWorks() {
 
 const MODES: { key: ModeName; label: string; hint: string }[] = [
   { key: 'PUBLIC', label: 'Public', hint: 'Anyone can look it up' },
-  { key: 'SELECTIVE', label: 'Selective', hint: 'Show a different result per viewer' },
   { key: 'STEALTH', label: 'Stealth', hint: 'Anyone pays; each payment hidden & unlinkable' },
 ];
 
@@ -375,7 +366,6 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
         <p className="muted">{result.status === 2 ? 'In its grace period — the current owner can still renew it.' : 'This name is already registered.'}</p>
         <PayBox label={result.label} name={result.name} />
         <RecordsView label={result.label} />
-        <AccessCheck label={result.label} name={result.name} />
       </div>
     );
   }
@@ -432,9 +422,6 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
   const [step, setStep] = useState('');
   const [info, setInfo] = useState<{ status: number; mine: boolean } | null>(null);
   // (isPublic derives from liveMode below, after on-chain state loads)
-
-  const [viewer, setViewer] = useState('');
-  const [grantTarget, setGrantTarget] = useState('');
   const [keyPublished, setKeyPublished] = useState<boolean | null>(null);
 
   const refresh = () => azns.nameStatus(label).then((s) => { setInfo(s); onStatus?.(label, { status: s.status, expiry: s.expiry }); }).catch(() => {});
@@ -474,12 +461,6 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
     setBusy(true); setStep('');
     try { await azns.publishStealth(label, setStep); setKeyPublished(true); refresh(); }
     catch (e: any) { setStep(`Couldn't publish: ${e?.message ?? 'try again'}`); }
-    finally { setBusy(false); }
-  }
-  async function doGrant() {
-    setBusy(true); setStep('');
-    try { await azns.grantAccess(label, viewer.trim(), grantTarget.trim(), setStep); setStep(`Access granted to ${short(viewer.trim())}.`); }
-    catch (e: any) { setStep(`Couldn't grant: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
 
@@ -542,19 +523,8 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
             </>
           ) : (
             <>
-              <p className="muted">A <b>selective</b> name resolves only for viewers you choose. Grants are private
-                notes — nothing about who can resolve this name ever appears on-chain.</p>
-              <label className="field">Grant access
-                <div className="row">
-                  <input value={viewer} onChange={(e) => setViewer(e.target.value)} placeholder="0x… or the viewer's public name.tru" disabled={busy} />
-                </div>
-                <div className="row">
-                  <input value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} placeholder="0x… or name.tru they should see" disabled={busy} />
-                  <button onClick={doGrant} disabled={busy || !viewer.trim() || !grantTarget.trim()}>Grant</button>
-                </div>
-              </label>
-              <p className="muted small">Grants can't be taken back — the viewer holds an encrypted note only they
-                can read. Grant access deliberately, to people you trust.</p>
+              <p className="muted">This name uses a retired mode. You can keep or renew it; per-mode management
+                isn't available.</p>
               <div className="row">
                 <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(liveMode)})</button>
               </div>
@@ -693,28 +663,3 @@ function PayBox({ label, name }: { label: string; name: string }) {
   );
 }
 
-/** Viewer-side selective resolution: shows what this name resolves to FOR YOU. */
-function AccessCheck({ label, name }: { label: string; name: string }) {
-  const [busy, setBusy] = useState(false);
-  const [out, setOut] = useState<string | null>(null);
-  const [msg, setMsg] = useState('');
-  async function check() {
-    setBusy(true); setMsg(''); setOut(null);
-    try {
-      const addr = await azns.myAccess(label);
-      if (addr) setOut(addr);
-      else setMsg(`${name} doesn't resolve for your account — if it's a selective name, ask the owner for access.`);
-    } catch (e: any) { setMsg(e?.message ?? 'Could not check access.'); }
-    finally { setBusy(false); }
-  }
-  return (
-    <div className="accessbox">
-      <div className="pay-head">
-        <b><Icon d={I.eye} size={14} /> Selective access</b>
-        <button className="ghost" onClick={check} disabled={busy}>{busy ? 'Checking…' : 'What does it resolve to for me?'}</button>
-      </div>
-      {out && <p className="result">For you <Copyable text={out} /></p>}
-      {msg && <p className="muted small">{msg}</p>}
-    </div>
-  );
-}
