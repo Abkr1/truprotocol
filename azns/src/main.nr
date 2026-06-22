@@ -456,28 +456,13 @@ pub contract AZNS {
         out
     }
 
-    #[external("private")]
-    fn revoke(name_hash: Field, recipient: AztecAddress) {
-        let caller = self.msg_sender();
-        let options = NoteGetterOptions::new().select(
-            ResolutionNote::properties().name_hash,
-            Comparator.EQ,
-            name_hash,
-        );
-        let _ = self.storage.resolutions.at(recipient).pop_notes(options);
-        self.enqueue_self._assert_owner_only(name_hash, caller);
-    }
-
-    // Owner check without epoch (revoke nullifies existing notes; it doesn't
-    // mint new ones, so there's no epoch to validate).
-    #[external("public")]
-    #[only_self]
-    fn _assert_owner_only(name_hash: Field, claimed_owner: AztecAddress) {
-        assert(
-            self.storage.owners.at(name_hash).read().eq(claimed_owner),
-            "granter does not own this name",
-        );
-    }
+    // NOTE: there is deliberately no on-demand `revoke`. A grant is an encrypted
+    // note already in the recipient's wallet - once delivered, no on-chain action
+    // can nullify a note the contract owner cannot produce a nullifier for, and
+    // the recipient has already decrypted the target regardless. Grants are
+    // therefore effective for the life of the name; only a takeover after the
+    // lease fully lapses (which bumps name_epoch) invalidates outstanding grants.
+    // Share selective access deliberately.
 }
 
 // =============================================================================

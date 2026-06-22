@@ -160,11 +160,14 @@ Expected demo output (addresses will differ):
 This is a **readable testnet reference**, not a production system:
 
 1. ✅ **Custom note type** — DONE. `src/resolution_note.nr` defines
-   `ResolutionNote {name_hash, target, expiry, owner}`, so one recipient can
-   hold capabilities for many names and `revoke` is precise (per-name).
-2. **Ownership in private** — `grant`/`revoke` enqueue an internal public
-   `_assert_grantable` to verify ownership asynchronously. Confirm the enqueue
-   syntax against your installed tag.
+   `ResolutionNote {name_hash, target, expiry, epoch}`, so one recipient can
+   hold capabilities for many names and filter precisely per-name.
+2. **Grants are not revocable on demand** — by design. A grant is an encrypted
+   note already in the recipient's wallet; no on-chain action can nullify a note
+   the owner can't produce a nullifier for, and the recipient has already
+   decrypted the target. Grants last for the life of the name (a takeover after
+   the lease fully lapses bumps `name_epoch` and invalidates outstanding grants).
+   `grant` enqueues an internal public `_assert_grantable` to verify ownership.
 3. **Expiry enforcement** — the note carries `expiry`, but `my_resolution`
    currently only checks it's non-zero. Tighten to compare against the chain
    timestamp (likely via an enqueued public check) once confirmed for your tag.

@@ -295,8 +295,8 @@ function HowItWorks() {
       icon: I.eye, mode: 'SELECTIVE', title: 'Selective', who: 'Only people he picks',
       story: <>Bob consults privately, so <b>bobadvisory.tru</b> is Selective: to the world it resolves
         to nothing. He grants Alice access and she sees one address; Carol is granted and sees a
-        <b> different</b> one. They can't even tell they're paying the same person — and Bob can revoke
-        anyone, anytime.</>,
+        <b> different</b> one. They can't even tell they're paying the same person — and only the people
+        Bob chooses can resolve it at all.</>,
     },
     {
       icon: I.shield, mode: 'STEALTH', title: 'Stealth', who: 'No one — money still arrives',
@@ -482,12 +482,6 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
     catch (e: any) { setStep(`Couldn't grant: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
-  async function doRevoke() {
-    setBusy(true); setStep('');
-    try { await azns.revokeAccess(label, viewer.trim(), setStep); setStep(`Access revoked for ${short(viewer.trim())}.`); }
-    catch (e: any) { setStep(`Couldn't revoke: ${e?.message ?? 'try again'}`); }
-    finally { setBusy(false); }
-  }
 
   return (
     <div className="result-card owned">
@@ -557,9 +551,10 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
                 <div className="row">
                   <input value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} placeholder="0x… or name.tru they should see" disabled={busy} />
                   <button onClick={doGrant} disabled={busy || !viewer.trim() || !grantTarget.trim()}>Grant</button>
-                  <button className="ghost" onClick={doRevoke} disabled={busy || !viewer.trim()}>Revoke</button>
                 </div>
               </label>
+              <p className="muted small">Grants can't be taken back — the viewer holds an encrypted note only they
+                can read. Grant access deliberately, to people you trust.</p>
               <div className="row">
                 <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(liveMode)})</button>
               </div>

@@ -350,14 +350,6 @@ export async function grantAccess(raw: string, viewer: string, target: string, o
   await send(conn!.azns.methods.grant(nh, viewerAddr, targetAddr, expiry, epoch));
 }
 
-/** Revoke a viewer's resolution capability for this selective name. */
-export async function revokeAccess(raw: string, viewer: string, onStep: (m: string) => void = () => {}) {
-  await connect(); await ensureWritable(onStep);
-  const viewerAddr = await resolveNameOrAddress(viewer, "viewer's address");
-  onStep('Revoking access (private)…');
-  await send(conn!.azns.methods.revoke(await nameHash(raw), viewerAddr));
-}
-
 /** What a selective name resolves to FOR ME (the connected viewer). '' if no access. */
 export async function myAccess(raw: string): Promise<string> {
   await connect();
