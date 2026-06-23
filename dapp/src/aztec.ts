@@ -83,20 +83,15 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
     await wallet.registerContract(fpc, SponsoredFPCContract.artifact);
     const node = createAztecNodeClient(NODE_URL);
 
-    // Wallet keys: a funded "house wallet" from env (lets the dApp pay testnet
-    // fees from native fee juice, since the shared sponsored FPC is drained),
-    // else a per-browser random account.
-    const houseSecret = process.env.DAPP_WALLET_SECRET;
-    const houseSalt = process.env.DAPP_WALLET_SALT;
-    let secret: string | null, salt: string | null;
-    if (houseSecret && houseSecret.length > 0 && houseSalt && houseSalt.length > 0) {
-      secret = houseSecret; salt = houseSalt;
-    } else {
-      secret = lsGet(LS.secret); salt = lsGet(LS.salt);
-      if (!secret || !salt) {
-        secret = Fr.random().toString(); salt = Fr.random().toString();
-        lsSet(LS.secret, secret); lsSet(LS.salt, salt);
-      }
+    // Self-custody wallet: each browser holds its OWN account key in localStorage.
+    // No shared/"house" secret is ever embedded in the app — that would be a
+    // funded key every visitor could read straight out of the bundle. Fees come
+    // from this account's native fee juice if it has any, else from the sponsored
+    // FPC (which the operator funds); the user supplies the registration token.
+    let secret = lsGet(LS.secret); let salt = lsGet(LS.salt);
+    if (!secret || !salt) {
+      secret = Fr.random().toString(); salt = Fr.random().toString();
+      lsSet(LS.secret, secret); lsSet(LS.salt, salt);
     }
 
     let manager: Manager | null = null;

@@ -404,9 +404,8 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
       <button className="cta" disabled={busy} onClick={claim}>
         {busy ? (step || 'Working…') : `Register for $${total}`}
       </button>
-      {!busy && <p className="muted small center">{azns.feeMode()?.funded
-        ? 'Fees paid from the demo wallet’s fee juice — registration runs on testnet.'
-        : 'No wallet needed — keys are created in your browser, fees are sponsored.'}</p>}
+      {!busy && <p className="muted small center">Your keys stay in your browser. Network fees are{' '}
+        {azns.feeMode()?.funded ? 'paid from your account’s fee juice' : 'sponsored'} — you just pay the registration price.</p>}
       {busy && <p className="muted small center">{mode === 'STEALTH'
         ? 'Registering and publishing your stealth key automatically — two private proofs, this can take a few minutes.'
         : 'This can take a minute while your registration is proven privately.'}</p>}
