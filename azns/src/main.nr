@@ -31,9 +31,10 @@ pub contract AZNS {
         messages::message_delivery::MessageDelivery,
         note::{note_getter_options::NoteGetterOptions, note_interface::NoteProperties},
         protocol::{address::AztecAddress, traits::{ToField, Serialize, Deserialize, Packable}},
-        state_vars::{Map, Owned, PrivateSet, PublicMutable},
+        state_vars::{Map, Owned, PrivateSet, PublicImmutable, PublicMutable},
         utils::comparison::Comparator,
     };
+    use token::Token;
     use crate::resolution_note::ResolutionNote;
     use crate::label_note::LabelNote;
 
@@ -106,25 +107,25 @@ pub contract AZNS {
         }
     }
 
-    // ---- FEE CHARGE (STUB) --------------------------------------------------
-    // Collects `amount_cents` (USD) worth of payment from `payer`. This is a
-    // STUB: wire it to your chosen settlement asset. Two honest options:
-    //   (a) Stablecoin-denominated: hold prices in USD cents and accept a
-    //       USD-pegged token 1:1 (simplest, no oracle).
-    //   (b) AZTEC/native: convert cents->token via a price oracle, then pull
-    //       the token. Needs a trusted price feed.
-    // Until wired, this asserts the amount is sane and returns; NO MONEY MOVES,
-    // so the lease logic is fully testable without the payment rail.
+    // Converts a USD-cent price to payment-token base units:
+    //   token_amount = cents * unit_per_cent
+    // Set at deploy from the payment token's decimals. For an 18-decimal
+    // USD-pegged stablecoin, 1 cent = 1e16 base units, so unit_per_cent = 1e16.
     #[contract_library_method]
-    fn _charge(payer: AztecAddress, amount_cents: u64) {
-        let _ = payer;
-        assert(amount_cents > 0, "zero fee");
-        // TODO: token transfer of `amount_cents` (or its token equivalent)
-        // from `payer` into the contract treasury. See options (a)/(b) above.
+    fn cents_to_tokens(cents: u64, unit_per_cent: u128) -> u128 {
+        (cents as u128) * unit_per_cent
     }
 
     #[storage]
     struct Storage<Context> {
+        // ---- FEE SETTLEMENT (set once at deploy) -------------------------
+        // The token registrations/renewals are paid in, where fees go, and the
+        // USD-cents -> token-units multiplier. Immutable so private functions
+        // can read them when building the charge.
+        payment_token: PublicImmutable<AztecAddress, Context>,
+        treasury: PublicImmutable<AztecAddress, Context>,
+        unit_per_cent: PublicImmutable<u128, Context>,
+
         // ---- PUBLIC existence registry -----------------------------------
         owners: Map<Field, PublicMutable<AztecAddress, Context>, Context>,
         expiry: Map<Field, PublicMutable<u64, Context>, Context>,
@@ -151,7 +152,11 @@ pub contract AZNS {
 
     #[external("public")]
     #[initializer]
-    fn constructor() {}
+    fn constructor(payment_token: AztecAddress, treasury: AztecAddress, unit_per_cent: u128) {
+        self.storage.payment_token.initialize(payment_token);
+        self.storage.treasury.initialize(treasury);
+        self.storage.unit_per_cent.initialize(unit_per_cent);
+    }
 
     // =======================================================================
     //  REGISTRATION - permissionless: anyone may claim any available name.
@@ -186,7 +191,14 @@ pub contract AZNS {
         assert(duration_years >= 1, "minimum lease is 1 year");
         let total_cents = price_for_mode(mode) * duration_years;
         let duration_secs = duration_years * YEAR_SECS;
-        _charge(owner, total_cents);
+
+        // Charge the fee: pull payment tokens from the buyer into the treasury
+        // (private transfer; the buyer pre-authorizes this contract via an
+        // authwit off-chain - see the dApp). owner == msg_sender (asserted above).
+        let amount = cents_to_tokens(total_cents, self.storage.unit_per_cent.read());
+        Token::at(self.storage.payment_token.read())
+            .transfer_in_private(owner, self.storage.treasury.read(), amount, 0)
+            .call(self.context);
 
         // Private label backup for the owner (encrypted; invisible on-chain).
         self.storage.labels.at(owner).insert(LabelNote::new(label)).deliver(
@@ -272,8 +284,11 @@ pub contract AZNS {
         let annual_cents = price_for_mode(mode);
         let total_cents = annual_cents * duration_years;
 
-        // Charge first (private), then extend expiry (public).
-        _charge(self.msg_sender(), total_cents);
+        // Charge first (private pull from the renewer), then extend expiry.
+        let amount = cents_to_tokens(total_cents, self.storage.unit_per_cent.read());
+        Token::at(self.storage.payment_token.read())
+            .transfer_in_private(self.msg_sender(), self.storage.treasury.read(), amount, 0)
+            .call(self.context);
 
         let extra_secs = duration_years * YEAR_SECS;
         self.enqueue_self._extend_expiry(name_hash, extra_secs, mode);
@@ -466,8 +481,12 @@ pub contract AZNS {
 }
 
 // =============================================================================
-//  OPEN ITEMS before this is production-ready (compiles + tests as-is):
-//   1. _charge is a stub - wire the real token settlement. Until then,
-//      registration is free in practice, so the per-mode pricing is not yet
-//      an effective anti-squatting deterrent.
+//  OPEN ITEMS before this is production-ready:
+//   - The fee is now charged for real: register()/renew() pull the per-mode
+//     price from the buyer via Token::transfer_in_private, authorized by an
+//     off-chain authwit (verified end-to-end in src/test.nr against a TXE-
+//     deployed Token). The dApp must build that authwit (wallet.createAuthWit)
+//     on register/renew, and a real USD-pegged stablecoin + treasury +
+//     unit_per_cent must be passed to the constructor at mainnet deploy.
+//   - Unaudited. Do not deploy to mainnet without a security audit.
 // =============================================================================
