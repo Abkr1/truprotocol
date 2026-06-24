@@ -19,6 +19,7 @@ import { EmbeddedWallet } from '@aztec/wallets/embedded';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { getSponsoredFPCInstance } from './sponsored_fpc.js';
 import { AZNSContract } from '../azns/target/AZNS.js';
+import { TokenContract } from '@aztec/noir-contracts.js/Token';
 import { nameHash, labelLength, packLabel, priceCentsForMode, MODE, ONE_YEAR_SECS, normaliseName } from './lib.js';
 import fs from 'node:fs';
 
@@ -61,8 +62,15 @@ async function main() {
   console.log('bob    :', bob.toString());
   console.log('auditor:', auditor.toString());
 
-  // --- 1. deploy AZNS ------------------------------------------------------
-  const { contract: azns } = await AZNSContract.deploy(wallet).send({ from: alice, fee });
+  // --- 1. deploy payment token + AZNS -------------------------------------
+  // Registration is paid now: deploy a test token (alice is admin/minter) and
+  // mint alice enough to cover the demo's registrations + renewal. unit_per_cent
+  // = 1 keeps fees tiny (2100 base units/yr); treasury = alice, so these
+  // self-payments don't drain her. The EmbeddedWallet auto-builds the fee
+  // authwit during its pre-simulation, so no manual authwit is needed here.
+  const { contract: token } = await TokenContract.deploy(wallet, alice, 'tru Test USD', 'tUSD', 18).send({ from: alice, fee });
+  await token.methods.mint_to_private(alice, 1_000_000n).send({ from: alice, fee });
+  const { contract: azns } = await AZNSContract.deploy(wallet, token.address, alice, 1n).send({ from: alice, fee });
   console.log('\nAZNS deployed at:', azns.address.toString());
 
   const send = async (from: AztecAddress, interaction: any) => {

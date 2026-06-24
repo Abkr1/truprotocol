@@ -37,12 +37,15 @@ async function main() {
   const send = async (from: any, i: any) => { await i.send({ from, fee }); };
   const sim = async (from: any, i: any) => (await i.simulate({ from })).result;
 
-  console.log('\ndeploying token + minting 1000 to payer ...');
+  console.log('\ndeploying token + minting to payer ...');
   const { contract: token } = await TokenContract.deploy(wallet, payer, 'Test USD', 'TUSD', 18).send({ from: payer, fee });
-  await send(payer, token.methods.mint_to_private(payer, 1000n));
+  await send(payer, token.methods.mint_to_private(payer, 1_000_000n));
 
-  console.log('deploying AZNS + registering "trupay" -> recipient (public) ...');
-  const { contract: azns } = await AZNSContract.deploy(wallet).send({ from: payer, fee });
+  console.log('deploying AZNS (paid in the test token) + registering "trupay" -> recipient (public) ...');
+  // treasury = payer + unit_per_cent = 1: the registration fee is a tiny
+  // self-payment, so it doesn't muddy the payment balances shown below. The
+  // EmbeddedWallet auto-builds the fee authwit during its pre-simulation.
+  const { contract: azns } = await AZNSContract.deploy(wallet, token.address, payer, 1n).send({ from: payer, fee });
   const nh = await nameHash('trupay');
   await send(payer, azns.methods.register(nh, packLabel('trupay'), labelLength('trupay'), payer, 1, MODE.PUBLIC));
   await send(payer, azns.methods.set_public_target(nh, recipient));

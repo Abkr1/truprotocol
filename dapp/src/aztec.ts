@@ -144,6 +144,28 @@ const send = async (interaction: any) => {
   finally { txInFlight--; }
 };
 
+// ---- registration / renewal fees ---------------------------------------------
+// register()/renew() pull the per-mode fee from the buyer's token balance via
+// Token.transfer_in_private. The EmbeddedWallet builds the required authwit
+// AUTOMATICALLY when it pre-simulates the tx (it captures the call-authorization
+// request and signs it on the account's behalf), so there is no manual authwit
+// to construct here. The only thing that can surprise a user is an insufficient
+// balance — check that up front and raise a friendly error rather than letting
+// the on-chain charge revert opaquely.
+async function feeAmount(modeVal: number, years: number): Promise<bigint> {
+  return BigInt((await sim(conn!.azns.methods.fee_amount(modeVal, years))).toString());
+}
+async function ensureFeeCovered(modeVal: number, years: number): Promise<void> {
+  const fee = await feeAmount(modeVal, years);
+  if (fee === 0n) return; // free config (e.g. unit_per_cent = 0 in a test deploy)
+  const bal = (await tokenBalance()) ?? 0n;
+  if (bal < fee) {
+    throw new Error(
+      'Not enough of the registration token to cover the fee. Click "Get test tokens" first, or fund this account with the registry\'s payment token.',
+    );
+  }
+}
+
 /** Deploy the user's account on first write (sponsored). */
 async function ensureWritable(onStep: (m: string) => void = () => {}): Promise<void> {
   const c = conn!;
@@ -189,8 +211,11 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
   const nh = await nameHash(raw);
   const len = labelLength(raw);
   const modeVal = MODE[mode];
+  // Anyone may claim any available name (no proof, no KYC) but registration is
+  // PAID: the contract pulls the per-mode fee from your token balance. Verify
+  // coverage first so a shortfall is a clear message, not an opaque revert.
+  await ensureFeeCovered(modeVal, years);
   onStep(`Registering ${normaliseName(raw)}…`);
-  // Permissionless: anyone may claim any available name. No proof, no KYC.
   // The packed label is minted back to the owner as an encrypted on-chain
   // backup, so any browser/device with these keys can rebuild "My names".
   await send(c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal));
@@ -332,6 +357,8 @@ export async function setPublicTarget(raw: string, target: string, onStep: (m: s
  *  against public storage, so a wrong mode here reverts (no underpaying). */
 export async function renew(raw: string, mode: ModeName, years: number, onStep: (m: string) => void = () => {}) {
   await connect(); await ensureWritable(onStep);
+  // Renewal is charged the same per-mode fee as registration — check coverage.
+  await ensureFeeCovered(MODE[mode], years);
   onStep('Renewing…');
   await send(conn!.azns.methods.renew(await nameHash(raw), MODE[mode], years));
   recordRenewal(raw.trim().toLowerCase().replace(/\.tru$/, ''), years);
@@ -407,41 +434,58 @@ export async function getAllRecords(raw: string): Promise<{ chain: Chain; addres
 //  (process.env.PAY_TOKEN_ADDRESS); on Aztec, transfers are private by default.
 // =============================================================================
 const LS_TOKEN = 'azns.token';
-/** Configured token: env first, else one this browser deployed (localStorage). */
+/** Configured fallback token: env first, else one this browser deployed. Used
+ *  only when the contract predates the payment_token() view. */
 export function tokenAddress(): string {
   const env = process.env.PAY_TOKEN_ADDRESS;
   return (env && env.length > 0) ? env : (lsGet(LS_TOKEN) || '');
+}
+let cachedPayToken: string | null = null;
+/** The token the AZNS contract charges fees in — the single source of truth,
+ *  read from its payment_token() view and cached. Everything money-related (the
+ *  fee charge, balance, faucet, name payments) uses THIS token, so the authwit
+ *  the wallet builds always targets the token the contract will actually pull. */
+export async function paymentToken(): Promise<string> {
+  if (cachedPayToken) return cachedPayToken;
+  await connect();
+  try {
+    const t = toAddr(await sim(conn!.azns.methods.payment_token()));
+    if (!t.isZero()) return (cachedPayToken = t.toString());
+  } catch { /* older contract without the view — fall back to config */ }
+  const fallback = tokenAddress();
+  if (!fallback) throw new Error('This registry has no payment token configured.');
+  return (cachedPayToken = fallback);
 }
 async function tokenAt(addr: string) {
   const { TokenContract } = await import('@aztec/noir-contracts.js/Token');
   return TokenContract.at(AztecAddress.fromString(addr), conn!.wallet);
 }
 
-/** Faucet: deploy a test token (first time, you're the admin) + mint to yourself. */
+/** Faucet: mint the registry's payment token to yourself. Works when this
+ *  account may mint it (local dev where you deployed it, or the operator). On a
+ *  shared testnet deployment the token is operator-minted, so a normal user gets
+ *  a clear error and should be funded the configured token instead. */
 export async function getTestTokens(amount: bigint, onStep: (m: string) => void = () => {}): Promise<string> {
   await connect(); await ensureWritable(onStep);
-  let addr = tokenAddress();
-  const { TokenContract } = await import('@aztec/noir-contracts.js/Token');
-  if (!addr) {
-    onStep('Deploying a test token (one-time)…');
-    const { contract } = await TokenContract.deploy(conn!.wallet, conn!.account, 'tru Test Token', 'TRU', 18)
-      .send({ from: conn!.account, fee: conn!.fee });
-    addr = contract.address.toString();
-    lsSet(LS_TOKEN, addr);
-  }
+  const addr = await paymentToken();
   onStep('Minting test tokens to you…');
-  const token = await TokenContract.at(AztecAddress.fromString(addr), conn!.wallet);
-  await send(token.methods.mint_to_private(conn!.account, amount));
+  const token = await tokenAt(addr);
+  try {
+    await send(token.methods.mint_to_private(conn!.account, amount));
+  } catch (e: any) {
+    throw new Error(`Couldn't mint the registration token (${e?.message ?? 'not authorized'}). This deployment's token may be operator-minted — ask the operator for test tokens, or fund this account with the token at ${addr.slice(0, 10)}….`);
+  }
   // This credit is a self-mint, not an incoming payment - tell the watcher to
   // absorb the next balance increase silently (no "Payment received" toast).
   suppressIncreaseUntil = Date.now() + 5 * 60 * 1000;
   return addr;
 }
 
-/** Your private token balance (null if no token configured). */
+/** Your private balance of the registry's payment token (null if unavailable). */
 export async function tokenBalance(): Promise<bigint | null> {
   await connect();
-  const addr = tokenAddress(); if (!addr) return null;
+  let addr: string;
+  try { addr = await paymentToken(); } catch { return null; }
   const token = await tokenAt(addr);
   return BigInt((await sim(token.methods.balance_of_private(conn!.account))).toString());
 }
@@ -500,8 +544,8 @@ export async function payTarget(raw: string): Promise<{ to: AztecAddress; kind: 
 export async function payPrivately(raw: string, amount: bigint, onStep: (m: string) => void = () => {}) {
   if (amount <= 0n) throw new Error('Enter an amount greater than zero.');
   await connect(); await ensureWritable(onStep);
-  const addr = tokenAddress();
-  if (!addr) throw new Error('No token yet — click "Get test tokens" first.');
+  const addr = await paymentToken();
+  if (!addr) throw new Error('No token configured for this registry.');
   onStep('Resolving name…');
   const dest = await payTarget(raw);
   if (!dest) throw new Error('This name has no payable address yet.');

@@ -320,6 +320,10 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 .pay-head b { color: var(--ink); }
 .bal { font-size: 12.5px; color: var(--muted); font-weight: 600; }
 
+/* balance + faucet affordance shown in the register card and pay box */
+.token-bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin: 14px 0 4px; }
+.token-bar .ghost { padding: 5px 12px; font-size: 13px; }
+
 /* ---- top nav tabs ------------------------------------------------------ */
 .brand { cursor: pointer; }
 .tabs { display: flex; gap: 4px; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 4px; box-shadow: var(--shadow-sm); }

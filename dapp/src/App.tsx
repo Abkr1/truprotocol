@@ -401,11 +401,13 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
         ))}
       </div>
 
+      <TokenBar />
+
       <button className="cta" disabled={busy} onClick={claim}>
         {busy ? (step || 'Working…') : `Register for $${total}`}
       </button>
       {!busy && <p className="muted small center">Your keys stay in your browser. Network fees are{' '}
-        {azns.feeMode()?.funded ? 'paid from your account’s fee juice' : 'sponsored'} — you just pay the registration price.</p>}
+        {azns.feeMode()?.funded ? 'paid from your account’s fee juice' : 'sponsored'} — the registration price is paid in the registry’s token.</p>}
       {busy && <p className="muted small center">{mode === 'STEALTH'
         ? 'Registering and publishing your stealth key automatically — two private proofs, this can take a few minutes.'
         : 'This can take a minute while your registration is proven privately.'}</p>}
@@ -626,6 +628,41 @@ function RecordList({ records }: { records: { chain: azns.Chain; address: string
   );
 }
 
+// The test/payment token is 18-decimal (see deploy_testnet.ts). Show balances
+// and take amounts in WHOLE tokens; convert to/from base units at the edges.
+const TOKEN_UNIT = 10n ** 18n;
+function fmtTok(base: bigint | null): string {
+  if (base === null) return '—';
+  const whole = base / TOKEN_UNIT;
+  const cents = (base % TOKEN_UNIT) * 100n / TOKEN_UNIT;
+  return cents > 0n ? `${whole}.${cents.toString().padStart(2, '0')}` : `${whole}`;
+}
+
+// Balance + faucet affordance. Registration is paid in the registry's token, so
+// this lets a user top up right where they need it. The faucet only works where
+// this account may mint the token (local dev / operator); elsewhere it surfaces
+// a clear message and the user funds the account with the token instead.
+function TokenBar({ onChanged }: { onChanged?: () => void }) {
+  const [bal, setBal] = useState<bigint | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const refresh = async () => { try { setBal(await azns.tokenBalance()); } catch { /* not connected */ } };
+  useEffect(() => { refresh(); }, []);
+  async function faucet() {
+    setBusy(true); setMsg('');
+    try { await azns.getTestTokens(1000n * TOKEN_UNIT, setMsg); await refresh(); setMsg('Added 1000 test tokens.'); onChanged?.(); }
+    catch (e: any) { setMsg(e?.message ?? 'Faucet failed.'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="token-bar">
+      <span className="muted small">Balance: {fmtTok(bal)} test tokens</span>
+      <button type="button" className="ghost" onClick={faucet} disabled={busy}>{busy ? (msg || 'Working…') : 'Get test tokens'}</button>
+      {!busy && msg && <span className="muted small">{msg}</span>}
+    </div>
+  );
+}
+
 function PayBox({ label, name }: { label: string; name: string }) {
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -636,13 +673,13 @@ function PayBox({ label, name }: { label: string; name: string }) {
 
   async function faucet() {
     setBusy(true); setMsg('');
-    try { await azns.getTestTokens(1000n, setMsg); await refresh(); setMsg('Got 1000 test TRU.'); }
+    try { await azns.getTestTokens(1000n * TOKEN_UNIT, setMsg); await refresh(); setMsg('Added 1000 test tokens.'); }
     catch (e: any) { setMsg(`Faucet failed: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
   async function pay() {
     setBusy(true); setMsg('');
-    try { await azns.payPrivately(label, BigInt(amount || '0'), setMsg); await refresh(); setMsg(`Sent ${amount} TRU privately to ${name}.`); }
+    try { await azns.payPrivately(label, BigInt(amount || '0') * TOKEN_UNIT, setMsg); await refresh(); setMsg(`Sent ${amount} tokens privately to ${name}.`); }
     catch (e: any) { setMsg(`Couldn't pay: ${e?.message ?? 'try again'}`); }
     finally { setBusy(false); }
   }
@@ -650,10 +687,10 @@ function PayBox({ label, name }: { label: string; name: string }) {
     <div className="paybox">
       <div className="pay-head">
         <b><Icon d={I.send} size={14} /> Send privately to {name}</b>
-        <span className="bal">balance: {bal === null ? '—' : `${bal} TRU`}</span>
+        <span className="bal">balance: {fmtTok(bal)} tokens</span>
       </div>
       <div className="row">
-        <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))} placeholder="amount" disabled={busy} />
+        <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))} placeholder="amount (tokens)" disabled={busy} />
         <button onClick={pay} disabled={busy || !amount}>Send privately</button>
         <button className="ghost" onClick={faucet} disabled={busy}>Get test tokens</button>
       </div>

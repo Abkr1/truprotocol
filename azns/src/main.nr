@@ -158,6 +158,31 @@ pub contract AZNS {
         self.storage.unit_per_cent.initialize(unit_per_cent);
     }
 
+    // ---- FEE-CONFIG VIEWS ---------------------------------------------------
+    // So the dApp can build the EXACT authwit the charge requires - it must
+    // authorize transfer_in_private(payer, treasury, fee_amount, 0) on this
+    // token - without hardcoding or drifting from the deploy parameters.
+    #[external("public")]
+    #[view]
+    fn payment_token() -> AztecAddress {
+        self.storage.payment_token.read()
+    }
+
+    #[external("public")]
+    #[view]
+    fn treasury() -> AztecAddress {
+        self.storage.treasury.read()
+    }
+
+    // The token amount register()/renew() will charge for `mode` over
+    // `duration_years`. The dApp reads this and authorizes exactly it, so the
+    // authwit message hash matches the contract's charge call.
+    #[external("public")]
+    #[view]
+    fn fee_amount(mode: u8, duration_years: u64) -> u128 {
+        cents_to_tokens(price_for_mode(mode) * duration_years, self.storage.unit_per_cent.read())
+    }
+
     // =======================================================================
     //  REGISTRATION - permissionless: anyone may claim any available name.
     // =======================================================================
