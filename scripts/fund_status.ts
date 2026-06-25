@@ -16,7 +16,7 @@ import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { getFeeJuiceBalance } from '@aztec/aztec.js/utils';
 import { loadDeployerKeys } from './fees.js';
 
-const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
+const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://v5.testnet.rpc.aztec-labs.com';
 
 async function main() {
   const keys = loadDeployerKeys();

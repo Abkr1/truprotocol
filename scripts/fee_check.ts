@@ -4,7 +4,7 @@ import { getContractInstanceFromInstantiationParams } from '@aztec/aztec.js/cont
 import { createAztecNodeClient } from '@aztec/aztec.js/node';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 
-const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
+const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://v5.testnet.rpc.aztec-labs.com';
 
 async function main() {
   const node = createAztecNodeClient(NODE_URL);

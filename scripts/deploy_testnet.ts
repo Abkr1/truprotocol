@@ -20,7 +20,7 @@
 //  Run (from repo root, inside WSL):
 //    npm run deploy:testnet
 //
-//  Testnet node + version: https://rpc.testnet.aztec-labs.com (aztec 4.3.1).
+//  Testnet node + version: https://v5.testnet.rpc.aztec-labs.com (aztec 5.0.0-rc.1).
 // =============================================================================
 import { AZNSContract } from '../azns/target/AZNS.js';
 import { TokenContract } from '@aztec/noir-contracts.js/Token';
@@ -28,7 +28,7 @@ import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { setupDeployer } from './fees.js';
 import fs from 'node:fs';
 
-const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
+const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://v5.testnet.rpc.aztec-labs.com';
 const PAY_TOKEN_ADDRESS = process.env.PAY_TOKEN_ADDRESS ?? '';
 const TREASURY_ADDRESS = process.env.TREASURY_ADDRESS ?? '';
 const UNIT_PER_CENT = BigInt(process.env.UNIT_PER_CENT ?? (10n ** 16n).toString());

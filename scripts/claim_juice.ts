@@ -21,7 +21,7 @@ import { setupDeployer } from './fees.js';
 import { nameHash } from './lib.js';
 import fs from 'node:fs';
 
-const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
+const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://v5.testnet.rpc.aztec-labs.com';
 const NAME = process.env.CLAIM_NAME ?? 'modeprice1';
 
 function aznsAddr(): string {

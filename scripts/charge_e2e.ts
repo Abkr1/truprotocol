@@ -22,7 +22,7 @@ import { Fr } from '@aztec/aztec.js/fields';
 import { setupDeployer } from './fees.js';
 import { nameHash, packLabel, labelLength, MODE } from './lib.js';
 
-const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://rpc.testnet.aztec-labs.com';
+const NODE_URL = process.env.AZTEC_NODE_URL ?? 'https://v5.testnet.rpc.aztec-labs.com';
 const UNIT_PER_CENT = 1n;       // tiny fee for the test: $21/yr -> 2100 base units
 const FEE_1YR_PUBLIC = 2100n;   // price_for_mode(PUBLIC)=2100 cents * 1yr * 1
 
