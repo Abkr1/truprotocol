@@ -12,11 +12,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@aztec/accounts": "4.3.1",
-    "@aztec/aztec.js": "4.3.1",
-    "@aztec/foundation": "4.3.1",
-    "@aztec/noir-contracts.js": "4.3.1",
-    "@aztec/wallets": "4.3.1",
+    "@aztec/accounts": "5.0.0-rc.1",
+    "@aztec/aztec.js": "5.0.0-rc.1",
+    "@aztec/foundation": "5.0.0-rc.1",
+    "@aztec/noir-contracts.js": "5.0.0-rc.1",
+    "@aztec/wallets": "5.0.0-rc.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

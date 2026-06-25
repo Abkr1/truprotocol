@@ -421,7 +421,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
   const [points, setPoints] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState('');
-  const [info, setInfo] = useState<{ status: number; mine: boolean } | null>(null);
+  const [info, setInfo] = useState<{ status: number; mine: boolean; mode: ModeName | null; expiry: number | null } | null>(null);
   // (isPublic derives from liveMode below, after on-chain state loads)
   const [keyPublished, setKeyPublished] = useState<boolean | null>(null);
 
