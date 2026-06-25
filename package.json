@@ -5,16 +5,16 @@
   "private": true,
   "scripts": {
     "codegen": "aztec codegen ./azns/target -o ./azns/target",
-    "demo": "node --loader ts-node/esm scripts/demo.ts",
-    "deploy:testnet": "node --loader ts-node/esm scripts/deploy_testnet.ts",
-    "register:testnet": "node --loader ts-node/esm scripts/register_testnet.ts",
-    "stealth:demo": "node --loader ts-node/esm scripts/stealth_demo.ts",
-    "pay:demo": "node --loader ts-node/esm scripts/pay_demo.ts",
-    "reg:verify": "node --loader ts-node/esm scripts/reg_verify.ts",
-    "charge:e2e": "node --loader ts-node/esm scripts/charge_e2e.ts",
-    "fund:status": "node --loader ts-node/esm scripts/fund_status.ts",
-    "test:codecs": "node --loader ts-node/esm scripts/chains_test.ts",
-    "claim:juice": "node --loader ts-node/esm scripts/claim_juice.ts"
+    "demo": "tsx scripts/demo.ts",
+    "deploy:testnet": "tsx scripts/deploy_testnet.ts",
+    "register:testnet": "tsx scripts/register_testnet.ts",
+    "stealth:demo": "tsx scripts/stealth_demo.ts",
+    "pay:demo": "tsx scripts/pay_demo.ts",
+    "reg:verify": "tsx scripts/reg_verify.ts",
+    "charge:e2e": "tsx scripts/charge_e2e.ts",
+    "fund:status": "tsx scripts/fund_status.ts",
+    "test:codecs": "tsx scripts/chains_test.ts",
+    "claim:juice": "tsx scripts/claim_juice.ts"
   },
   "dependencies": {
     "@aztec/accounts": "5.0.0-rc.1",
@@ -26,7 +26,7 @@
     "@aztec/wallets": "5.0.0-rc.1"
   },
   "devDependencies": {
-    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.4.0"
   }
 }
