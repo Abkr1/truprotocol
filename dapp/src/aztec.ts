@@ -45,6 +45,7 @@ type Conn = {
   feeLabel: string;
   funded: boolean;   // account already holds native fee juice (=> already deployed)
   azns: AZNSContract;
+  node: any;         // aztec node client, for registering external contract instances
 };
 
 export type SearchResult = {
@@ -128,21 +129,45 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
     } catch { /* may already be registered, or sim-only works */ }
     const azns = await AZNSContract.at(AztecAddress.fromString(known), wallet);
 
-    conn = { wallet, account, manager, fee, feeLabel, funded, azns };
+    // Register the payment-token INSTANCE too (a fresh PXE only knows contracts
+    // it deployed), so private balance reads AND the fee-charge simulation can
+    // find it. Done here in the serial connect phase, before any polling starts.
+    // Resolve the token from env, else the registry's payment_token() view.
+    try {
+      const payTok = (process.env.PAY_TOKEN_ADDRESS && process.env.PAY_TOKEN_ADDRESS.length > 0)
+        ? process.env.PAY_TOKEN_ADDRESS
+        : toAddr((await azns.methods.payment_token().simulate({ from: account })).result).toString();
+      if (payTok && !toAddr(payTok).isZero()) {
+        const { TokenContract } = await import('@aztec/noir-contracts.js/Token');
+        const tinst = await node.getContract(AztecAddress.fromString(payTok));
+        if (tinst) await wallet.registerContract(tinst, TokenContract.artifact);
+      }
+    } catch { /* token not configured, already registered, or older registry */ }
+
+    conn = { wallet, account, manager, fee, feeLabel, funded, azns, node };
     return conn;
   })();
   try { return await connecting; } finally { connecting = null; }
 }
 
-const sim = async (interaction: any) => (await interaction.simulate({ from: conn!.account })).result;
-// Track in-flight transactions so background polling never competes with the
-// prover for the PXE.
+// v5's PXE runs ONE job at a time ("concurrent execution is not supported"), so
+// serialize every PXE read/write through this chain. Without it the dApp's
+// overlapping operations (search + the balance watcher + connect) collide and
+// some fail to see freshly-registered contract instances.
+let pxeChain: Promise<unknown> = Promise.resolve();
+function withPxe<T>(fn: () => Promise<T>): Promise<T> {
+  const result = pxeChain.then(fn, fn);
+  pxeChain = result.then(() => {}, () => {});
+  return result;
+}
+const sim = (interaction: any) => withPxe(async () => (await interaction.simulate({ from: conn!.account })).result);
+// Track in-flight transactions so background polling never competes with the prover.
 let txInFlight = 0;
-const send = async (interaction: any) => {
+const send = (interaction: any) => withPxe(async () => {
   txInFlight++;
   try { await interaction.send({ from: conn!.account, fee: conn!.fee }); }
   finally { txInFlight--; }
-};
+});
 
 // ---- registration / renewal fees ---------------------------------------------
 // register()/renew() pull the per-mode fee from the buyer's token balance via
@@ -456,8 +481,22 @@ export async function paymentToken(): Promise<string> {
   if (!fallback) throw new Error('This registry has no payment token configured.');
   return (cachedPayToken = fallback);
 }
+// A fresh PXE only knows contracts it deployed; register the token INSTANCE from
+// the node before use (idempotent; connect() already does this for the configured
+// token, this covers any others) so private balance reads + the fee-charge
+// simulation can find it. Serialized via withPxe to respect the one-job PXE.
+const registeredTokens = new Set<string>();
 async function tokenAt(addr: string) {
   const { TokenContract } = await import('@aztec/noir-contracts.js/Token');
+  if (!registeredTokens.has(addr)) {
+    registeredTokens.add(addr);
+    await withPxe(async () => {
+      try {
+        const inst = await conn!.node.getContract(AztecAddress.fromString(addr));
+        if (inst) await conn!.wallet.registerContract(inst, TokenContract.artifact);
+      } catch { /* already registered or unavailable */ }
+    });
+  }
   return TokenContract.at(AztecAddress.fromString(addr), conn!.wallet);
 }
 
