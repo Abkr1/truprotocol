@@ -11,6 +11,7 @@
     "stealth:demo": "node --loader ts-node/esm scripts/stealth_demo.ts",
     "pay:demo": "node --loader ts-node/esm scripts/pay_demo.ts",
     "reg:verify": "node --loader ts-node/esm scripts/reg_verify.ts",
+    "charge:e2e": "node --loader ts-node/esm scripts/charge_e2e.ts",
     "fund:status": "node --loader ts-node/esm scripts/fund_status.ts",
     "test:codecs": "node --loader ts-node/esm scripts/chains_test.ts",
     "claim:juice": "node --loader ts-node/esm scripts/claim_juice.ts"
