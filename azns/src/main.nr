@@ -28,7 +28,7 @@ pub contract AZNS {
             functions::{external, initializer, only_self, view},
             storage::storage,
         },
-        messages::message_delivery::MessageDelivery,
+        messages::delivery::MessageDelivery,
         note::{note_getter_options::NoteGetterOptions, note_interface::NoteProperties},
         protocol::{address::AztecAddress, traits::{ToField, Serialize, Deserialize, Packable}},
         state_vars::{Map, Owned, PrivateSet, PublicImmutable, PublicMutable},
@@ -227,7 +227,7 @@ pub contract AZNS {
 
         // Private label backup for the owner (encrypted; invisible on-chain).
         self.storage.labels.at(owner).insert(LabelNote::new(label)).deliver(
-            MessageDelivery.ONCHAIN_CONSTRAINED,
+            MessageDelivery::onchain_constrained(),
         );
 
         self.enqueue_self._finalize(name_hash, owner, duration_secs, mode);
@@ -453,7 +453,7 @@ pub contract AZNS {
         // Insert the note for `recipient` and deliver it on-chain (encrypted)
         // so the recipient's PXE can discover and decrypt it.
         self.storage.resolutions.at(recipient).insert(note).deliver(
-            MessageDelivery.ONCHAIN_CONSTRAINED,
+            MessageDelivery::onchain_constrained(),
         );
         self.enqueue_self._assert_grantable(name_hash, caller, epoch);
     }
