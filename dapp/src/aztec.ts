@@ -169,6 +169,23 @@ const send = (interaction: any) => withPxe(async () => {
   finally { txInFlight--; }
 });
 
+// The v5 testnet/PXE has transient hiccups — an unsynced note ("Failed to get a
+// note"), a dropped fetch, a brief network blip — that a retry clears (the next
+// attempt re-syncs the PXE first). `make` must build a FRESH interaction each
+// try. An already-applied write (name taken / nullifier exists) counts as done.
+async function sendRetry(make: () => any, tries = 3): Promise<void> {
+  for (let i = 1; i <= tries; i++) {
+    try { await send(make()); return; }
+    catch (e: any) {
+      const m = String(e?.message ?? e);
+      if (/name registered or in grace|Existing nullifier/i.test(m)) return; // already landed
+      const transient = /Failed to get a note|Failed to fetch|fetch failed|dropped|timeout|reorg|ECONN|network|not ready|Block hash/i.test(m);
+      if (i < tries && transient) { await new Promise((r) => setTimeout(r, 4000)); continue; }
+      throw e;
+    }
+  }
+}
+
 // ---- registration / renewal fees ---------------------------------------------
 // register()/renew() pull the per-mode fee from the buyer's token balance via
 // Token.transfer_in_private. The EmbeddedWallet builds the required authwit
@@ -243,7 +260,7 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
   onStep(`Registering ${normaliseName(raw)}…`);
   // The packed label is minted back to the owner as an encrypted on-chain
   // backup, so any browser/device with these keys can rebuild "My names".
-  await send(c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal));
+  await sendRetry(() => c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal));
   recordName(raw, mode, years);
   if (mode === 'STEALTH') {
     // Stealth names need a published meta-key before anyone can pay them -
@@ -385,7 +402,8 @@ export async function renew(raw: string, mode: ModeName, years: number, onStep: 
   // Renewal is charged the same per-mode fee as registration — check coverage.
   await ensureFeeCovered(MODE[mode], years);
   onStep('Renewing…');
-  await send(conn!.azns.methods.renew(await nameHash(raw), MODE[mode], years));
+  const nh = await nameHash(raw);
+  await sendRetry(() => conn!.azns.methods.renew(nh, MODE[mode], years));
   recordRenewal(raw.trim().toLowerCase().replace(/\.tru$/, ''), years);
 }
 
@@ -529,10 +547,10 @@ export async function getTestTokens(amount: bigint, onStep: (m: string) => void 
   try {
     if (faucetAddr) {
       const faucet = await faucetAt(faucetAddr);
-      await send(faucet.methods.claim(amount));
+      await sendRetry(() => faucet.methods.claim(amount));
     } else {
       const token = await tokenAt(addr); // local dev: this account can mint directly
-      await send(token.methods.mint_to_private(conn!.account, amount));
+      await sendRetry(() => token.methods.mint_to_private(conn!.account, amount));
     }
   } catch (e: any) {
     throw new Error(`Couldn't get test tokens (${e?.message ?? 'try again'}).${faucetAddr ? '' : ' No faucet configured for this registry.'}`);
