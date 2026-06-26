@@ -81,7 +81,7 @@ export default function App() {
       .then(() => {
         setAccount(azns.accountAddress());
         azns.startPaymentWatcher(
-          (delta) => { setToast(`Payment received: +${delta} TRU`); setLastPay({ delta: String(delta), at: Date.now() }); },
+          (delta) => { setToast(`Payment received: +${fmtTok(delta)} tokens`); setLastPay({ delta: String(delta), at: Date.now() }); },
           (bal) => setBalance(bal),
         );
       })
@@ -110,7 +110,7 @@ export default function App() {
           </button>
         </nav>
         <span className="rc-tags">
-          {balance !== null && <span className="badge ghosty" title="Your private token balance (auto-updates)">{String(balance)} TRU</span>}
+          {balance !== null && <span className="badge ghosty" title="Your private token balance (auto-updates)">{fmtTok(balance)} tokens</span>}
           {account
             ? <Copyable text={account} className="badge" title="Click to copy your address"><span className="dot" />{short(account)}</Copyable>
             : <span className="badge ghosty">{connecting ? 'Connecting…' : azns.isLocal ? 'Local' : 'Testnet'}</span>}
@@ -251,7 +251,7 @@ function Dashboard({ setAccount, lastPay }: { setAccount: (a: string | null) => 
         </button>
       </div>
       {refreshMsg && <p className="muted small">{refreshMsg}</p>}
-      {lastPay && <p className="muted small">Last payment received: <b>+{lastPay.delta} TRU</b> · {new Date(lastPay.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
+      {lastPay && <p className="muted small">Last payment received: <b>+{fmtTok(BigInt(lastPay.delta))} tokens</b> · {new Date(lastPay.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
       {err && <div className="notice err">{err}</div>}
       {!ready && <p className="muted small">connecting…</p>}
       {needsRenewal.length > 0 && (

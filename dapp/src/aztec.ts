@@ -500,19 +500,42 @@ async function tokenAt(addr: string) {
   return TokenContract.at(AztecAddress.fromString(addr), conn!.wallet);
 }
 
-/** Faucet: mint the registry's payment token to yourself. Works when this
- *  account may mint it (local dev where you deployed it, or the operator). On a
- *  shared testnet deployment the token is operator-minted, so a normal user gets
- *  a clear error and should be funded the configured token instead. */
+// Open-mint Faucet binding, registered in the PXE like the token. When a
+// FAUCET_ADDRESS is configured, claims go through it so ANY account can get test
+// tokens (the faucet is an approved token minter, minting to the caller).
+const registeredFaucets = new Set<string>();
+async function faucetAt(addr: string) {
+  const { FaucetContract } = await import('./contracts/Faucet');
+  if (!registeredFaucets.has(addr)) {
+    registeredFaucets.add(addr);
+    await withPxe(async () => {
+      try {
+        const inst = await conn!.node.getContract(AztecAddress.fromString(addr));
+        if (inst) await conn!.wallet.registerContract(inst, FaucetContract.artifact);
+      } catch { /* already registered or unavailable */ }
+    });
+  }
+  return FaucetContract.at(AztecAddress.fromString(addr), conn!.wallet);
+}
+
+/** Faucet: get test tokens for the registry's payment token. Uses the open-mint
+ *  Faucet contract (FAUCET_ADDRESS) so any account self-serves; falls back to a
+ *  direct mint for local dev where this account is the token's own minter. */
 export async function getTestTokens(amount: bigint, onStep: (m: string) => void = () => {}): Promise<string> {
   await connect(); await ensureWritable(onStep);
   const addr = await paymentToken();
-  onStep('Minting test tokens to you…');
-  const token = await tokenAt(addr);
+  const faucetAddr = (process.env.FAUCET_ADDRESS && process.env.FAUCET_ADDRESS.length > 0) ? process.env.FAUCET_ADDRESS : '';
+  onStep('Claiming test tokens…');
   try {
-    await send(token.methods.mint_to_private(conn!.account, amount));
+    if (faucetAddr) {
+      const faucet = await faucetAt(faucetAddr);
+      await send(faucet.methods.claim(amount));
+    } else {
+      const token = await tokenAt(addr); // local dev: this account can mint directly
+      await send(token.methods.mint_to_private(conn!.account, amount));
+    }
   } catch (e: any) {
-    throw new Error(`Couldn't mint the registration token (${e?.message ?? 'not authorized'}). This deployment's token may be operator-minted — ask the operator for test tokens, or fund this account with the token at ${addr.slice(0, 10)}….`);
+    throw new Error(`Couldn't get test tokens (${e?.message ?? 'try again'}).${faucetAddr ? '' : ' No faucet configured for this registry.'}`);
   }
   // This credit is a self-mint, not an incoming payment - tell the watcher to
   // absorb the next balance increase silently (no "Payment received" toast).

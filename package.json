@@ -7,6 +7,7 @@
     "codegen": "aztec codegen ./azns/target -o ./azns/target",
     "demo": "tsx scripts/demo.ts",
     "deploy:testnet": "tsx scripts/deploy_testnet.ts",
+    "deploy:faucet": "tsx scripts/deploy_faucet.ts",
     "register:testnet": "tsx scripts/register_testnet.ts",
     "stealth:demo": "tsx scripts/stealth_demo.ts",
     "pay:demo": "tsx scripts/pay_demo.ts",

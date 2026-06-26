@@ -17,6 +17,14 @@ for (const [from, to] of need) {
   copyFileSync(from, to);
 }
 
+// Optional: the open-mint Faucet binding (only present if faucet/ was built).
+for (const [from, to] of [
+  ['../faucet/target/Faucet.ts', 'src/contracts/Faucet.ts'],
+  ['../faucet/target/faucet-Faucet.json', 'src/contracts/faucet-Faucet.json'],
+]) {
+  if (existsSync(from)) copyFileSync(from, to);
+}
+
 // Serve the bb.js WASM at /assets (matches BB_WASM_PATH in vite.config.ts).
 // Only the multithreaded gz ships in the package; we're cross-origin isolated
 // so that's the one bb loads. We also write it under the single-threaded name

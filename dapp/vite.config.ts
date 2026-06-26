@@ -34,6 +34,7 @@ export default defineConfig(({ mode }) => {
       'process.env.AZTEC_NODE_URL': JSON.stringify(env.AZTEC_NODE_URL ?? ''),
       'process.env.AZNS_ADDRESS': JSON.stringify(env.AZNS_ADDRESS ?? ''),
       'process.env.PAY_TOKEN_ADDRESS': JSON.stringify(env.PAY_TOKEN_ADDRESS ?? ''),
+      'process.env.FAUCET_ADDRESS': JSON.stringify(env.FAUCET_ADDRESS ?? ''),
       // bb.js loads its WASM from this path; the -threads variant is inferred.
       // We copy the file into public/assets via sync.mjs.
       'process.env.BB_WASM_PATH': JSON.stringify('/assets/barretenberg.wasm.gz'),

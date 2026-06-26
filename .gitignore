@@ -3,6 +3,7 @@ node_modules
 
 # generated contract artifacts (rebuild: aztec compile + npm run codegen)
 azns/target/
+faucet/target/
 personhood/target/
 dapp/src/contracts/
 dapp/public/assets/
