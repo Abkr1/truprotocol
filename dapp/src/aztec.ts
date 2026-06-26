@@ -215,8 +215,14 @@ async function ensureWritable(onStep: (m: string) => void = () => {}): Promise<v
   if (lsGet(LS.accountDeployed)) return;
   onStep('Setting up your wallet (one-time)…');
   if (!c.manager) c.manager = await c.wallet.createSchnorrAccount(Fr.fromString(lsGet(LS.secret)!), Fr.fromString(lsGet(LS.salt)!));
+  // Wait for the account deploy to be CHECKPOINTED (canonical), not just the
+  // default PROPOSED: the PXE only reliably syncs notes from canonical blocks,
+  // and the account's signing-key note (a SinglePrivateImmutable) must be synced
+  // before its FIRST entrypoint tx — else that tx fails with "Failed to get a
+  // note" on a brand-new account (the symptom users hit on the very first claim).
+  onStep('Finalizing your wallet (one-time, ~1 min)…');
   try {
-    await (await c.manager.getDeployMethod()).send({ from: NO_FROM, fee: c.fee });
+    await (await c.manager.getDeployMethod()).send({ from: NO_FROM, fee: c.fee, wait: { waitForStatus: 'checkpointed' as any } });
   } catch (e: any) {
     if (!/already|deployed|exist/i.test(e?.message ?? '')) throw e;
   }
