@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as azns from './aztec';
 import type { SearchResult } from './aztec';
+import AzguardButton from './AzguardButton';
 import { priceUsdForMode, type ModeName } from './lib';
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -114,6 +115,7 @@ export default function App() {
           {account
             ? <Copyable text={account} className="badge" title="Click to copy your address"><span className="dot" />{short(account)}</Copyable>
             : <span className="badge ghosty">{connecting ? 'Connecting…' : azns.isLocal ? 'Local' : 'Testnet'}</span>}
+          <AzguardButton />
           <button className="theme-btn" onClick={() => setTheme((t) => t === 'light' ? 'dark' : 'light')}
             title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
             <Icon d={theme === 'light' ? I.moon : I.sun} size={16} />
