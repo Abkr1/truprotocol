@@ -57,13 +57,28 @@ function parseClaim() {
  *                           so every later tx falls back to native
  *   - sponsored FPC       -> shared fallback (often drained on testnet)
  */
+// The public testnet node does NOT implement the debug-only RPC method
+// `aztec_registerContractFunctionSignatures` (-32601). The server PXE (node
+// entrypoint) calls it during PXE.create / registerContract, which aborts setup.
+// Wrap the node client so that one method is a harmless no-op (registering
+// function signatures is only for debugging); everything else passes through.
+export function tolerantNode(url: string): any {
+  const node: any = createAztecNodeClient(url);
+  return new Proxy(node, {
+    get(target, prop, recv) {
+      if (prop === 'registerContractFunctionSignatures') return async () => {};
+      return Reflect.get(target, prop, recv);
+    },
+  });
+}
+
 export async function setupDeployer(NODE_URL: string) {
   const proverEnabled = !/localhost|127\.0\.0\.1/.test(NODE_URL);
-  const wallet = await EmbeddedWallet.create(NODE_URL, { pxe: { proverEnabled } });
+  const node = tolerantNode(NODE_URL);
+  const wallet = await EmbeddedWallet.create(node, { pxe: { proverEnabled } });
   const keys = loadDeployerKeys();
   const manager = await wallet.createSchnorrAccount(Fr.fromString(keys.secret), Fr.fromString(keys.salt));
   const account = (await wallet.getAccounts())[0].item;
-  const node = createAztecNodeClient(NODE_URL);
 
   // Register the sponsored FPC (used as fallback).
   const fpc = await getContractInstanceFromInstantiationParams(SponsoredFPCContract.artifact, { salt: new Fr(0n) });
@@ -75,8 +90,14 @@ export async function setupDeployer(NODE_URL: string) {
   const claim = parseClaim();
 
   // bootstrapFee pays for the account-deploy tx; ongoingFee pays for the rest.
+  // FEE_MODE=sponsored forces the shared FPC (e.g. right after refuelling it
+  // while the deployer itself is broke); FEE_MODE=native forces native juice.
+  const feeMode = process.env.FEE_MODE ?? 'auto';
   let bootstrapFee: any, ongoingFee: any, payer: string;
-  if (bal > 0n) {
+  if (feeMode === 'sponsored') {
+    bootstrapFee = sponsored; ongoingFee = sponsored;
+    payer = 'shared sponsored FPC (FEE_MODE=sponsored)';
+  } else if (bal > 0n) {
     bootstrapFee = native; ongoingFee = native;
     payer = `native fee juice (balance ${bal})`;
   } else if (claim) {
@@ -88,20 +109,21 @@ export async function setupDeployer(NODE_URL: string) {
     payer = 'shared sponsored FPC (fallback)';
   }
 
-  // Deploy the deployer account once. node.getContract() returns undefined for an
-  // account whose instance was never published, so we can't rely on it. Instead:
-  // a positive fee-juice balance only exists if the account already bootstrapped
-  // (the claim funds it during its own deploy) -> if funded, it is already on-chain.
-  if (bal > 0n) {
-    console.log('deployer account already funded + on-chain; skipping deploy.');
+  // Deploy the deployer account once. A positive fee-juice balance does NOT
+  // prove the account contract exists: a chain reset leaves faucet credits on
+  // an undeployed address. Ask the node for the instance; deploy when missing
+  // (an "Existing nullifier" error still means already-deployed). Wait for the
+  // deploy to be CHECKPOINTED so the account's signing-key note is syncable
+  // before its first entrypoint tx (else "Failed to get a note").
+  const instance = await (node as any).getContract(account).catch(() => undefined);
+  if (instance) {
+    console.log('deployer account already on-chain; skipping deploy.');
   } else {
     console.log(`deploying deployer account (paid by ${payer}) ...`);
     try {
-      await (await manager.getDeployMethod()).send({ from: NO_FROM, fee: bootstrapFee });
-      console.log('  deployer account deployed.');
+      await (await manager.getDeployMethod()).send({ from: NO_FROM, fee: bootstrapFee, wait: { waitForStatus: 'checkpointed' as any } });
+      console.log('  deployer account deployed (canonical).');
     } catch (e: any) {
-      // Already-deployed (e.g. a prior sponsored bootstrap) shows up as a duplicate
-      // address nullifier -> treat as deployed and carry on.
       const msg = String(e?.message ?? e);
       if (/Existing nullifier|already.*(deploy|exist)/i.test(msg)) {
         console.log('  deployer account already on-chain (deploy skipped).');

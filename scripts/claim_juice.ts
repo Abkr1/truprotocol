@@ -40,10 +40,10 @@ async function main() {
   const before = await getFeeJuiceBalance(account, node as any);
   console.log(`balance before: ${before}`);
 
-  const inst = await node.getContract(AztecAddress.fromString(aznsAddr()));
+  const inst = await node.getContract(AztecAddress.fromStringUnsafe(aznsAddr()));
   if (!inst) throw new Error('AZNS contract not found on the node');
   await wallet.registerContract(inst, AZNSContract.artifact);
-  const azns = await AZNSContract.at(AztecAddress.fromString(aznsAddr()), wallet);
+  const azns = await AZNSContract.at(AztecAddress.fromStringUnsafe(aznsAddr()), wallet);
 
   console.log(`consuming claim (${claim.claimAmount}) via a no-op repoint of ${NAME}.tru ...`);
   const fee = { paymentMethod: new FeeJuicePaymentMethodWithClaim(account, claim) };

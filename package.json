@@ -8,6 +8,7 @@
     "demo": "tsx scripts/demo.ts",
     "deploy:testnet": "tsx scripts/deploy_testnet.ts",
     "deploy:faucet": "tsx scripts/deploy_faucet.ts",
+    "deploy:beacon": "tsx scripts/deploy_beacon.ts",
     "register:testnet": "tsx scripts/register_testnet.ts",
     "stealth:demo": "tsx scripts/stealth_demo.ts",
     "pay:demo": "tsx scripts/pay_demo.ts",
@@ -15,16 +16,17 @@
     "charge:e2e": "tsx scripts/charge_e2e.ts",
     "fund:status": "tsx scripts/fund_status.ts",
     "test:codecs": "tsx scripts/chains_test.ts",
-    "claim:juice": "tsx scripts/claim_juice.ts"
+    "claim:juice": "tsx scripts/claim_juice.ts",
+    "claim:fpc": "tsx scripts/claim_fpc.ts"
   },
   "dependencies": {
-    "@aztec/accounts": "5.0.0-rc.1",
-    "@aztec/aztec.js": "5.0.0-rc.1",
-    "@aztec/bb.js": "5.0.0-rc.1",
-    "@aztec/foundation": "5.0.0-rc.1",
-    "@aztec/noir-contracts.js": "5.0.0-rc.1",
-    "@aztec/noir-noir_js": "5.0.0-rc.1",
-    "@aztec/wallets": "5.0.0-rc.1"
+    "@aztec/accounts": "5.0.0-nightly.20260701",
+    "@aztec/aztec.js": "5.0.0-nightly.20260701",
+    "@aztec/bb.js": "5.0.0-nightly.20260701",
+    "@aztec/foundation": "5.0.0-nightly.20260701",
+    "@aztec/noir-contracts.js": "5.0.0-nightly.20260701",
+    "@aztec/noir-noir_js": "5.0.0-nightly.20260701",
+    "@aztec/wallets": "5.0.0-nightly.20260701"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

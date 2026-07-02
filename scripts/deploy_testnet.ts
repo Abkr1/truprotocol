@@ -43,23 +43,23 @@ async function main() {
   //    with the operator as admin/minter so registrations can be charged.
   let tokenAddr: AztecAddress;
   if (PAY_TOKEN_ADDRESS) {
-    tokenAddr = AztecAddress.fromString(PAY_TOKEN_ADDRESS);
+    tokenAddr = AztecAddress.fromStringUnsafe(PAY_TOKEN_ADDRESS);
     console.log(`using configured payment token: ${tokenAddr}`);
   } else {
     console.log('deploying a test payment token (operator is admin/minter) ...');
     const { contract: token } = await TokenContract
       .deploy(wallet, account, 'tru Test USD', 'tUSD', 18)
-      .send({ from: account, fee });
+      .send({ from: account, fee, wait: { waitForStatus: 'checkpointed' as any } });
     tokenAddr = token.address;
     console.log(`test token deployed at: ${tokenAddr}`);
   }
-  const treasury = TREASURY_ADDRESS ? AztecAddress.fromString(TREASURY_ADDRESS) : account;
+  const treasury = TREASURY_ADDRESS ? AztecAddress.fromStringUnsafe(TREASURY_ADDRESS) : account;
 
   // 2. Deploy AZNS wired to the fee settlement config.
   console.log('deploying AZNS (permissionless registration, paid in token) ...');
   const { contract: azns } = await AZNSContract
     .deploy(wallet, tokenAddr, treasury, UNIT_PER_CENT)
-    .send({ from: account, fee });
+    .send({ from: account, fee, wait: { waitForStatus: 'checkpointed' as any } });
   const addr = azns.address.toString();
   console.log(`\nAZNS deployed on testnet at: ${addr}`);
   console.log(`  payment token: ${tokenAddr}`);
