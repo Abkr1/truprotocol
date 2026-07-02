@@ -19,6 +19,7 @@ import { openTmpStore } from '@aztec/kv-store/sqlite-opfs';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from './contracts/AZNS';
 import { poseidon2Hash } from '@aztec/foundation/crypto/poseidon';
+import { azguardState, azSendTx, azUtility, azRegisterSender, azRegisterContract } from './azguard';
 import {
   nameHash, labelLength, normaliseName, packLabel, unpackLabel,
   MODE, MIN_LABEL, MAX_LABEL, ONE_YEAR_SECS, nowSecs, type ModeName,
@@ -176,6 +177,42 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
   try { return await connecting; } finally { connecting = null; }
 }
 
+// ---- External wallet (Azguard) mode layer --------------------------------------
+// When an Azguard session is active, PRIVATE STATE + WRITES route through the
+// wallet (it holds the keys, proves, and pays fees); PUBLIC reads keep using our
+// own read-PXE in both modes (fast, and independent of the wallet's protocol
+// version). Everything below branches through these helpers.
+function azMode(): { address: string } | null {
+  const s = azguardState();
+  return s ? { address: s.address } : null;
+}
+export function walletMode(): 'embedded' | 'azguard' { return azMode() ? 'azguard' : 'embedded'; }
+/** The account the user is acting as: the Azguard account when connected,
+ *  else this browser's embedded account. */
+function activeAccount(): AztecAddress {
+  const a = azMode();
+  return a ? AztecAddress.fromStringUnsafe(a.address) : conn!.account;
+}
+// Register this registry's contracts in the WALLET's PXE once per session so
+// its simulations/txs can resolve them. Best-effort: on a wallet build that
+// doesn't support this network yet, errors surface on the actual operation.
+let azContractsRegistered = '';
+async function ensureAzContracts(): Promise<void> {
+  const a = azMode();
+  if (!a || azContractsRegistered === a.address) return;
+  azContractsRegistered = a.address;
+  const addrs = [
+    conn?.azns.address.toString(),
+    await paymentToken().catch(() => ''),
+    BEACON_ADDRESS,
+    (process.env.FAUCET_ADDRESS && process.env.FAUCET_ADDRESS.length > 0) ? process.env.FAUCET_ADDRESS : '',
+  ].filter((x): x is string => !!x);
+  for (const addr of addrs) {
+    try { await azRegisterContract(addr); }
+    catch (e) { console.warn('azguard register_contract failed (wallet may not support this network yet):', addr, e); }
+  }
+}
+
 // v5's PXE runs ONE job at a time ("concurrent execution is not supported"), so
 // serialize every PXE read/write through this chain. Without it the dApp's
 // overlapping operations (search + the balance watcher + connect) collide and
@@ -223,6 +260,28 @@ async function sendRetry(make: () => any, tries = 3): Promise<void> {
 async function feeAmount(modeVal: number, years: number): Promise<bigint> {
   return BigInt((await sim(conn!.azns.methods.fee_amount(modeVal, years))).toString());
 }
+let cachedTreasury = '';
+async function treasuryAddr(): Promise<string> {
+  if (cachedTreasury) return cachedTreasury;
+  return (cachedTreasury = toAddr(await sim(conn!.azns.methods.treasury())).toString());
+}
+/** The fee-pull authwit action for Azguard txs: authorize AZNS to move the
+ *  per-mode fee from the connected account to the treasury (the wallet signs
+ *  it). Mirrors what the EmbeddedWallet auto-creates during pre-simulation. */
+async function azFeeAuthwitActions(modeVal: number, years: number, payer: string): Promise<any[]> {
+  const fee = await feeAmount(modeVal, years);
+  if (fee === 0n) return []; // free config - nothing to authorize
+  return [{
+    kind: 'add_private_authwit',
+    content: {
+      kind: 'call',
+      caller: conn!.azns.address.toString(),
+      contract: await paymentToken(),
+      method: 'transfer_in_private',
+      args: [payer, await treasuryAddr(), fee.toString(), 0],
+    },
+  }];
+}
 async function ensureFeeCovered(modeVal: number, years: number): Promise<void> {
   const fee = await feeAmount(modeVal, years);
   if (fee === 0n) return; // free config (e.g. unit_per_cent = 0 in a test deploy)
@@ -236,6 +295,7 @@ async function ensureFeeCovered(modeVal: number, years: number): Promise<void> {
 
 /** Deploy the user's account on first write (sponsored). */
 async function ensureWritable(onStep: (m: string) => void = () => {}): Promise<void> {
+  if (azMode()) { await ensureAzContracts(); return; } // wallet accounts are managed by the wallet
   const c = conn!;
   if (c.funded) { lsSet(LS.accountDeployed, '1'); return; } // funded => already on-chain
   if (lsGet(LS.accountDeployed)) return;
@@ -271,7 +331,7 @@ export async function search(raw: string): Promise<SearchResult> {
   const nh = await nameHash(raw);
   const status = Number(await sim(conn!.azns.methods.lease_status(nh)));
   const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
-  const mine = !owner.isZero() && owner.equals(conn!.account);
+  const mine = !owner.isZero() && owner.equals(activeAccount());
   if (mine && !myNames().some((n) => n.label === label)) {
     // Searching a name you own re-adds it to "My names" (recovers the list
     // after a cleared browser, a new device, etc.). Mode comes from the chain.
@@ -296,7 +356,16 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
   onStep(`Registering ${normaliseName(raw)}…`);
   // The packed label is minted back to the owner as an encrypted on-chain
   // backup, so any browser/device with these keys can rebuild "My names".
-  await sendRetry(() => c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal));
+  const az = azMode();
+  if (az) {
+    // One wallet tx: authorize the fee pull + register. Azguard proves + pays.
+    await azSendTx([
+      ...(await azFeeAuthwitActions(modeVal, years, az.address)),
+      { kind: 'call', contract: c.azns.address.toString(), method: 'register', args: [nh.toString(), packLabel(raw).toString(), len, az.address, years, modeVal] },
+    ]);
+  } else {
+    await sendRetry(() => c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal));
+  }
   recordName(raw, mode, years);
   if (mode === 'STEALTH') {
     // Stealth names need a published meta-key before anyone can pay them -
@@ -358,7 +427,13 @@ const MODE_NAMES: ModeName[] = ['PUBLIC', 'SELECTIVE', 'STEALTH'];
  *  into the local list. Returns how many names were added. */
 export async function restoreMyNames(): Promise<number> {
   await connect();
-  const out: any = await sim(conn!.azns.methods.my_labels());
+  // Label backups are PRIVATE notes of the active account - read them from the
+  // wallet that holds that account's keys.
+  const az = azMode();
+  if (az) await ensureAzContracts();
+  const out: any = az
+    ? await azUtility(conn!.azns.address.toString(), 'my_labels', [])
+    : await sim(conn!.azns.methods.my_labels());
   const fields: any[] = Array.isArray(out) ? out : [];
   let added = 0;
   for (const f of fields) {
@@ -372,7 +447,7 @@ export async function restoreMyNames(): Promise<number> {
       // registry before trusting it.
       const nh = await nameHash(label);
       const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
-      if (!owner.equals(conn!.account)) continue;
+      if (!owner.equals(activeAccount())) continue;
       const modeNum = Number(await sim(conn!.azns.methods.mode_of(nh)));
       recordName(label, MODE_NAMES[modeNum] ?? 'PUBLIC');
       added++;
@@ -389,7 +464,7 @@ export async function nameStatus(label: string): Promise<{ status: number; mine:
   const nh = await nameHash(label);
   const status = Number(await sim(conn!.azns.methods.lease_status(nh)));
   const owner = toAddr(await sim(conn!.azns.methods.owner_of(nh)));
-  const mine = !owner.isZero() && owner.equals(conn!.account);
+  const mine = !owner.isZero() && owner.equals(activeAccount());
   if (status === 0) return { status, mine, mode: null, expiry: null };
   const modeNum = Number(await sim(conn!.azns.methods.mode_of(nh)));
   const expiry = Number(await sim(conn!.azns.methods.expiry_of(nh)));
@@ -427,7 +502,12 @@ export async function setPublicTarget(raw: string, target: string, onStep: (m: s
   await connect(); await ensureWritable(onStep);
   const to = await resolveNameOrAddress(target, 'target address');
   onStep('Saving…');
-  await send(conn!.azns.methods.set_public_target(await nameHash(raw), to));
+  const az = azMode();
+  if (az) {
+    await azSendTx([{ kind: 'call', contract: conn!.azns.address.toString(), method: 'set_public_target', args: [(await nameHash(raw)).toString(), to.toString()] }]);
+  } else {
+    await send(conn!.azns.methods.set_public_target(await nameHash(raw), to));
+  }
 }
 
 /** Renew a lease. The contract prices by mode and verifies the claimed mode
@@ -438,7 +518,15 @@ export async function renew(raw: string, mode: ModeName, years: number, onStep: 
   await ensureFeeCovered(MODE[mode], years);
   onStep('Renewing…');
   const nh = await nameHash(raw);
-  await sendRetry(() => conn!.azns.methods.renew(nh, MODE[mode], years));
+  const az = azMode();
+  if (az) {
+    await azSendTx([
+      ...(await azFeeAuthwitActions(MODE[mode], years, az.address)),
+      { kind: 'call', contract: conn!.azns.address.toString(), method: 'renew', args: [nh.toString(), MODE[mode], years] },
+    ]);
+  } else {
+    await sendRetry(() => conn!.azns.methods.renew(nh, MODE[mode], years));
+  }
   recordRenewal(raw.trim().toLowerCase().replace(/\.tru$/, ''), years);
 }
 
@@ -478,7 +566,12 @@ export async function setRecord(raw: string, chainKey: string, address: string, 
   const bytes = await parseChainAddress(chain, address); // throws a friendly error if invalid
   const { hi, lo, len } = packRecordBytes(bytes);
   onStep(`Saving ${chain.label} record…`);
-  await send(conn!.azns.methods.set_addr(await nameHash(raw), chain.coinType, hi, lo, len));
+  const az = azMode();
+  if (az) {
+    await azSendTx([{ kind: 'call', contract: conn!.azns.address.toString(), method: 'set_addr', args: [(await nameHash(raw)).toString(), chain.coinType, hi.toString(), lo.toString(), len] }]);
+  } else {
+    await send(conn!.azns.methods.set_addr(await nameHash(raw), chain.coinType, hi, lo, len));
+  }
 }
 
 /** Read the address a name points to on one chain. '' if unset. */
@@ -580,7 +673,12 @@ export async function getTestTokens(amount: bigint, onStep: (m: string) => void 
   const faucetAddr = (process.env.FAUCET_ADDRESS && process.env.FAUCET_ADDRESS.length > 0) ? process.env.FAUCET_ADDRESS : '';
   onStep('Claiming test tokens…');
   try {
-    if (faucetAddr) {
+    const az = azMode();
+    if (az && faucetAddr) {
+      await azSendTx([{ kind: 'call', contract: faucetAddr, method: 'claim', args: [amount.toString()] }]);
+    } else if (az) {
+      await azSendTx([{ kind: 'call', contract: addr, method: 'mint_to_private', args: [az.address, amount.toString()] }]);
+    } else if (faucetAddr) {
       const faucet = await faucetAt(faucetAddr);
       await sendRetry(() => faucet.methods.claim(amount));
     } else {
@@ -596,11 +694,18 @@ export async function getTestTokens(amount: bigint, onStep: (m: string) => void 
   return addr;
 }
 
-/** Your private balance of the registry's payment token (null if unavailable). */
+/** Your private balance of the registry's payment token (null if unavailable).
+ *  Private state lives in the ACTIVE wallet: Azguard's PXE when connected. */
 export async function tokenBalance(): Promise<bigint | null> {
   await connect();
   let addr: string;
   try { addr = await paymentToken(); } catch { return null; }
+  const a = azMode();
+  if (a) {
+    await ensureAzContracts();
+    const v = await azUtility(addr, 'balance_of_private', [a.address]);
+    return BigInt((v && v.toString) ? v.toString() : v ?? 0);
+  }
   const token = await tokenAt(addr);
   return BigInt((await sim(token.methods.balance_of_private(conn!.account))).toString());
 }
@@ -628,7 +733,7 @@ export function startPaymentWatcher(
     // through the normal "payment received" path.
     try {
       await scanBeaconPayments();
-      if (!beaconKeyAttempted && lsGet(LS.accountDeployed)) {
+      if (!beaconKeyAttempted && (azMode() || lsGet(LS.accountDeployed))) {
         beaconKeyAttempted = true; // one shot per session; reset on failure
         ensureBeaconKey().catch(() => { beaconKeyAttempted = false; });
       }
@@ -676,12 +781,21 @@ export async function payPrivately(raw: string, amount: bigint, onStep: (m: stri
   const dest = await payTarget(raw);
   if (!dest) throw new Error('This name has no payable address yet.');
   onStep('Sending a private transfer…');
-  const token = await tokenAt(addr);
-  await send(token.methods.transfer(dest.to, amount)); // PRIVATE transfer only
-  // Make it discoverable: announce under the recipient's beacon tag (no-op if
-  // they never published a key). The payment itself is already final — an
-  // announce failure must never surface as a payment failure.
-  try { await announcePayment(dest.to, onStep); } catch { /* recipient can still revealFrom */ }
+  const az = azMode();
+  if (az) {
+    // One ATOMIC wallet tx: transfer + beacon announce together (the embedded
+    // path needs two txs; the wallet's action batch does it in one).
+    const actions: any[] = [{ kind: 'call', contract: addr, method: 'transfer', args: [dest.to.toString(), amount.toString()] }];
+    try { const a = await azAnnounceAction(dest.to); if (a) actions.push(a); } catch { /* announce optional */ }
+    await azSendTx(actions);
+  } else {
+    const token = await tokenAt(addr);
+    await send(token.methods.transfer(dest.to, amount)); // PRIVATE transfer only
+    // Make it discoverable: announce under the recipient's beacon tag (no-op if
+    // they never published a key). The payment itself is already final — an
+    // announce failure must never surface as a payment failure.
+    try { await announcePayment(dest.to, onStep); } catch { /* recipient can still revealFrom */ }
+  }
   onStep('Paid privately.');
 }
 
@@ -701,8 +815,16 @@ export async function publishStealth(raw: string, onStep: (m: string) => void = 
   const S = await Grumpkin.mul(Grumpkin.generator, s);
   const V = await Grumpkin.mul(Grumpkin.generator, v);
   onStep('Publishing your stealth key…');
-  await send(conn!.azns.methods.set_stealth_meta(await nameHash(raw),
-    { spend_x: S.x, spend_y: S.y, view_x: V.x, view_y: V.y }));
+  const az = azMode();
+  if (az) {
+    await azSendTx([{
+      kind: 'call', contract: conn!.azns.address.toString(), method: 'set_stealth_meta',
+      args: [(await nameHash(raw)).toString(), { spend_x: S.x.toString(), spend_y: S.y.toString(), view_x: V.x.toString(), view_y: V.y.toString() }],
+    }]);
+  } else {
+    await send(conn!.azns.methods.set_stealth_meta(await nameHash(raw),
+      { spend_x: S.x, spend_y: S.y, view_x: V.x, view_y: V.y }));
+  }
   onStep('Stealth key published — anyone can now pay this name privately.');
 }
 /** True if a stealth meta-key has been published for the name. */
@@ -712,7 +834,11 @@ export async function hasStealthKey(raw: string): Promise<boolean> {
   return !(BigInt((k.spend_x?.toString?.() ?? k.spend_x) || 0) === 0n);
 }
 
-export function accountAddress(): string | null { return conn ? conn.account.toString() : null; }
+export function accountAddress(): string | null {
+  const a = azMode();
+  if (a) return a.address;
+  return conn ? conn.account.toString() : null;
+}
 /** How testnet fees are being paid once connected: native fee juice vs sponsored FPC. */
 export function feeMode(): { funded: boolean; label: string } | null {
   return conn ? { funded: conn.funded, label: conn.feeLabel } : null;
@@ -740,9 +866,16 @@ export async function payToAddress(addressStr: string, amount: bigint, onStep: (
   const bal = (await tokenBalance()) ?? 0n;
   if (bal < amount) throw new Error(`Balance (${bal}) is less than the amount you tried to send (${amount}).`);
   onStep('Sending a private transfer…');
-  const token = await tokenAt(addr);
-  await sendRetry(() => token.methods.transfer(to, amount)); // PRIVATE transfer only
-  try { await announcePayment(to, onStep); } catch { /* recipient can still revealFrom */ }
+  const az = azMode();
+  if (az) {
+    const actions: any[] = [{ kind: 'call', contract: addr, method: 'transfer', args: [to.toString(), amount.toString()] }];
+    try { const a = await azAnnounceAction(to); if (a) actions.push(a); } catch { /* announce optional */ }
+    await azSendTx(actions);
+  } else {
+    const token = await tokenAt(addr);
+    await sendRetry(() => token.methods.transfer(to, amount)); // PRIVATE transfer only
+    try { await announcePayment(to, onStep); } catch { /* recipient can still revealFrom */ }
+  }
   onStep('Sent.');
   return { to: to.toString(), amount: amount.toString() };
 }
@@ -756,9 +889,10 @@ export async function payToAddress(addressStr: string, amount: bigint, onStep: (
 export async function revealFrom(senderStr: string): Promise<{ account: string; registered: string; balanceTokens: string }> {
   await connect();
   const sender = parseAddress(senderStr, 'sender');
-  await withPxe(() => conn!.wallet.registerSender(sender, sender.toString()));
-  const bal = (await tokenBalance()) ?? 0n; // simulate() syncs the PXE first
-  return { account: conn!.account.toString(), registered: sender.toString(), balanceTokens: (bal / (10n ** 18n)).toString() };
+  if (azMode()) await azRegisterSender(sender.toString());
+  else await withPxe(() => conn!.wallet.registerSender(sender, sender.toString()));
+  const bal = (await tokenBalance()) ?? 0n; // the read syncs the active wallet first
+  return { account: activeAccount().toString(), registered: sender.toString(), balanceTokens: (bal / (10n ** 18n)).toString() };
 }
 
 // ---- Payment-discovery beacon (Option A) --------------------------------------
@@ -774,20 +908,36 @@ const BEACON_ADDRESS = (process.env.BEACON_ADDRESS && process.env.BEACON_ADDRESS
 const BEACON_DOMAIN = 0x747275n; // "tru" — domain-separates every beacon hash
 const LS_BEACON_KEY = `azns.beacon.key.${REGISTRY_TAG}`;
 const LS_BEACON_SEEN = `azns.beacon.seen.${REGISTRY_TAG}`;
+// Azguard sessions scope beacon state per EXTERNAL account (one browser may
+// connect different wallet accounts over time).
+const beaconFlagKey = () => { const a = azMode(); return a ? `${LS_BEACON_KEY}.az.${a.address.slice(0, 18)}` : LS_BEACON_KEY; };
+const beaconSeenKey = () => { const a = azMode(); return a ? `${LS_BEACON_SEEN}.az.${a.address.slice(0, 18)}` : LS_BEACON_SEEN; };
 
 async function grumpkinLib() {
   const { Grumpkin } = await import('@aztec/foundation/crypto/grumpkin');
   const { GrumpkinScalar, Point } = await import('@aztec/foundation/curves/grumpkin');
   return { Grumpkin, GrumpkinScalar, Point };
 }
-/** This account's beacon keypair, derived from the wallet secret — it follows
- *  the account to any browser; there is nothing extra to back up. */
+/** The active account's beacon keypair. Embedded: derived from the wallet
+ *  secret (follows the account anywhere, nothing extra to back up). Azguard:
+ *  a dedicated per-account discovery keypair kept in this browser — we can't
+ *  derive from the external wallet's secret. Regenerable: a lost key just
+ *  means re-registering; history stays recoverable via revealFrom. */
 async function beaconKeys() {
   const { Grumpkin, GrumpkinScalar } = await grumpkinLib();
-  const secret = lsGet(LS.secret);
-  if (!secret) throw new Error('connect first');
-  const seed = await poseidon2Hash([Fr.fromString(secret), new Fr(BEACON_DOMAIN)]);
-  const priv = GrumpkinScalar.fromString(seed.toString());
+  let priv;
+  const a = azMode();
+  if (a) {
+    const k = `azns.beacon.azpriv.${a.address.slice(0, 18)}`;
+    let stored = lsGet(k);
+    if (!stored) { stored = GrumpkinScalar.random().toString(); lsSet(k, stored); }
+    priv = GrumpkinScalar.fromString(stored);
+  } else {
+    const secret = lsGet(LS.secret);
+    if (!secret) throw new Error('connect first');
+    const seed = await poseidon2Hash([Fr.fromString(secret), new Fr(BEACON_DOMAIN)]);
+    priv = GrumpkinScalar.fromString(seed.toString());
+  }
   const pub = await Grumpkin.mul(Grumpkin.generator, priv);
   return { priv, pub };
 }
@@ -815,39 +965,59 @@ const beaconTag = async (kx: Fr, ky: Fr) =>
 export async function ensureBeaconKey(onStep: (m: string) => void = () => {}): Promise<boolean> {
   if (!BEACON_ADDRESS) return false;
   await connect();
-  if (lsGet(LS_BEACON_KEY)) return true;
+  if (lsGet(beaconFlagKey())) return true;
   const beacon = await beaconAt(BEACON_ADDRESS);
   try {
-    const k: any = await sim(beacon.methods.key_of(conn!.account));
-    if (BigInt((k?.x?.toString?.() ?? k?.x) || 0) !== 0n) { lsSet(LS_BEACON_KEY, '1'); return true; }
+    const k: any = await sim(beacon.methods.key_of(activeAccount()));
+    if (BigInt((k?.x?.toString?.() ?? k?.x) || 0) !== 0n) { lsSet(beaconFlagKey(), '1'); return true; }
   } catch { /* unreadable — try to register below */ }
-  if (!lsGet(LS.accountDeployed)) return false; // a key without an account helps nobody
+  const az = azMode();
+  if (!az && !lsGet(LS.accountDeployed)) return false; // a key without an account helps nobody
   const { pub } = await beaconKeys();
   onStep('Publishing your discovery key (one-time)…');
-  await sendRetry(() => beacon.methods.register_key(pub.x, pub.y));
-  lsSet(LS_BEACON_KEY, '1');
+  if (az) {
+    await ensureAzContracts();
+    await azSendTx([{ kind: 'call', contract: BEACON_ADDRESS, method: 'register_key', args: [pub.x.toString(), pub.y.toString()] }]);
+  } else {
+    await sendRetry(() => beacon.methods.register_key(pub.x, pub.y));
+  }
+  lsSet(beaconFlagKey(), '1');
   return true;
 }
 
-/** Announce a payment under the RECIPIENT's beacon tag so they discover it
- *  without knowing us. No-op when they have no published key. */
-async function announcePayment(recipient: AztecAddress, onStep: (m: string) => void = () => {}): Promise<boolean> {
-  if (!BEACON_ADDRESS) return false;
+/** Build the encrypted announce payload for a recipient, or null when they
+ *  have no published beacon key. The encrypted payer = the ACTIVE account. */
+async function buildAnnounce(recipient: AztecAddress): Promise<{ tag: Fr; ex: Fr; ey: Fr; ct: Fr } | null> {
+  if (!BEACON_ADDRESS) return null;
   const beacon = await beaconAt(BEACON_ADDRESS);
   const k: any = await sim(beacon.methods.key_of(recipient));
   const kx = BigInt((k?.x?.toString?.() ?? k?.x) || 0);
   const ky = BigInt((k?.y?.toString?.() ?? k?.y) || 0);
-  if (kx === 0n) return false; // recipient not discoverable (no key published)
-  onStep('Announcing the payment for auto-discovery…');
+  if (kx === 0n) return null; // recipient not discoverable (no key published)
   const { Grumpkin, GrumpkinScalar, Point } = await grumpkinLib();
   const K = new Point(new Fr(kx), new Fr(ky));
   const e = GrumpkinScalar.random();
   const E = await Grumpkin.mul(Grumpkin.generator, e); // goes in the payload
   const S = await Grumpkin.mul(K, e);                  // ECDH shared secret
   const mask = await poseidon2Hash([S.x, S.y, new Fr(BEACON_DOMAIN)]);
-  const ct = new Fr((conn!.account.toBigInt() + mask.toBigInt()) % Fr.MODULUS);
+  const ct = new Fr((activeAccount().toBigInt() + mask.toBigInt()) % Fr.MODULUS);
   const tag = await beaconTag(new Fr(kx), new Fr(ky));
-  await sendRetry(() => beacon.methods.announce(tag, E.x, E.y, ct));
+  return { tag, ex: E.x, ey: E.y, ct };
+}
+/** As a CallAction for an Azguard tx (null when the recipient has no key). */
+async function azAnnounceAction(recipient: AztecAddress): Promise<any | null> {
+  const p = await buildAnnounce(recipient);
+  if (!p) return null;
+  return { kind: 'call', contract: BEACON_ADDRESS, method: 'announce', args: [p.tag.toString(), p.ex.toString(), p.ey.toString(), p.ct.toString()] };
+}
+/** Announce a payment under the RECIPIENT's beacon tag so they discover it
+ *  without knowing us (embedded-wallet path). */
+async function announcePayment(recipient: AztecAddress, onStep: (m: string) => void = () => {}): Promise<boolean> {
+  const p = await buildAnnounce(recipient);
+  if (!p) return false;
+  onStep('Announcing the payment for auto-discovery…');
+  const beacon = await beaconAt(BEACON_ADDRESS);
+  await sendRetry(() => beacon.methods.announce(p.tag, p.ex, p.ey, p.ct));
   return true;
 }
 
@@ -863,7 +1033,7 @@ export async function scanBeaconPayments(): Promise<number> {
   const res: any[][] = await conn!.node.getPrivateLogsByTags({ tags: [siloed] });
   const logs: any[] = res?.[0] ?? [];
   if (logs.length === 0) return 0;
-  const seen = new Set<string>(JSON.parse(lsGet(LS_BEACON_SEEN) || '[]'));
+  const seen = new Set<string>(JSON.parse(lsGet(beaconSeenKey()) || '[]'));
   const { Grumpkin, Point } = await grumpkinLib();
   let found = 0;
   for (const log of logs) {
@@ -878,12 +1048,15 @@ export async function scanBeaconPayments(): Promise<number> {
       const mask = await poseidon2Hash([S.x, S.y, new Fr(BEACON_DOMAIN)]);
       const payerB = ((BigInt(f[3].toString()) - mask.toBigInt()) % Fr.MODULUS + Fr.MODULUS) % Fr.MODULUS;
       const payer = AztecAddress.fromFieldUnsafe(new Fr(payerB));
-      if (payer.isZero() || payer.equals(conn!.account)) continue;
-      await withPxe(() => conn!.wallet.registerSender(payer, payer.toString()));
+      if (payer.isZero() || payer.equals(activeAccount())) continue;
+      // Register the discovered payer in the ACTIVE wallet's PXE so its notes appear.
+      const a = azMode();
+      if (a) await azRegisterSender(payer.toString());
+      else await withPxe(() => conn!.wallet.registerSender(payer, payer.toString()));
       found++;
     } catch { /* not ours / malformed — skip */ }
   }
-  lsSet(LS_BEACON_SEEN, JSON.stringify([...seen]));
+  lsSet(beaconSeenKey(), JSON.stringify([...seen]));
   return found;
 }
 

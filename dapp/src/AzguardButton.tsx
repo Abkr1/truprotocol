@@ -19,7 +19,7 @@ type Status =
 
 const short = (a: string) => a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 
-export default function AzguardButton() {
+export default function AzguardButton({ onChanged }: { onChanged?: () => void } = {}) {
   const [s, setS] = useState<Status>({ k: 'checking' });
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function AzguardButton() {
         setS({ k: 'connecting' });
         try {
           const r = await az.azguardConnect();
-          if (live) setS({ k: 'connected', address: r.address, chainSupported: r.chainSupported });
+          if (live) { setS({ k: 'connected', address: r.address, chainSupported: r.chainSupported }); onChanged?.(); }
         } catch { if (live) setS({ k: 'idle' }); }
       } else {
         setS({ k: 'idle' });
@@ -49,6 +49,7 @@ export default function AzguardButton() {
       if (!(await az.azguardAvailable())) { setS({ k: 'absent' }); return; }
       const r = await az.azguardConnect();
       setS({ k: 'connected', address: r.address, chainSupported: r.chainSupported });
+      onChanged?.();
     } catch (e: any) {
       setS({ k: 'error', message: String(e?.message ?? e).slice(0, 120) });
     }
@@ -56,6 +57,7 @@ export default function AzguardButton() {
   const disconnect = async () => {
     try { const az = await import('./azguard'); await az.azguardDisconnect(); } catch { /* ignore */ }
     setS({ k: 'idle' });
+    onChanged?.();
   };
 
   if (s.k === 'checking') return null; // resolving availability; keep the bar clean

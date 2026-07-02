@@ -115,7 +115,7 @@ export default function App() {
           {account
             ? <Copyable text={account} className="badge" title="Click to copy your address"><span className="dot" />{short(account)}</Copyable>
             : <span className="badge ghosty">{connecting ? 'Connecting…' : azns.isLocal ? 'Local' : 'Testnet'}</span>}
-          <AzguardButton />
+          <AzguardButton onChanged={() => setAccount(azns.accountAddress())} />
           <button className="theme-btn" onClick={() => setTheme((t) => t === 'light' ? 'dark' : 'light')}
             title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
             <Icon d={theme === 'light' ? I.moon : I.sun} size={16} />
