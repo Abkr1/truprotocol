@@ -17,8 +17,6 @@ const I = {
   warn: <path d="M12 3 2.5 20h19L12 3Zm0 7v4m0 3v.5" />,
   key: <path d="M15 9a6 6 0 1 0-5.7 6L11 13.3V11h2.3l1-1H15ZM9 15l-6 6m3-3 2 2" />,
   user: <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-8 9a8 8 0 0 1 16 0" />,
-  sun: <path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0-15v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m1.4-14.2-1.4 1.4M6.3 17.7l-1.4 1.4" />,
-  moon: <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />,
 };
 function Icon({ d, size = 18 }: { d: JSX.Element; size?: number }) {
   return (
@@ -65,14 +63,10 @@ export default function App() {
   const [balance, setBalance] = useState<bigint | null>(null);
   const [toast, setToast] = useState('');
   const [lastPay, setLastPay] = useState<{ delta: string; at: number } | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    (globalThis.localStorage?.getItem('azns.theme') as 'light' | 'dark' | null)
-    ?? (globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    globalThis.localStorage?.setItem('azns.theme', theme);
-  }, [theme]);
+  // Dark mode only: the theme is pinned via data-theme="dark" on <html> in
+  // index.html (no light flash, no toggle). Drop the old preference key.
+  useEffect(() => { globalThis.localStorage?.removeItem('azns.theme'); }, []);
 
   // Auto-connect on load, then watch for incoming private payments in the
   // background - owners never have to "check" anything manually.
@@ -116,10 +110,6 @@ export default function App() {
             ? <Copyable text={account} className="badge" title="Click to copy your address"><span className="dot" />{short(account)}</Copyable>
             : <span className="badge ghosty">{connecting ? 'Connecting…' : azns.isLocal ? 'Local' : 'Testnet'}</span>}
           <AzguardButton onChanged={() => setAccount(azns.accountAddress())} />
-          <button className="theme-btn" onClick={() => setTheme((t) => t === 'light' ? 'dark' : 'light')}
-            title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
-            <Icon d={theme === 'light' ? I.moon : I.sun} size={16} />
-          </button>
         </span>
       </div>
 
