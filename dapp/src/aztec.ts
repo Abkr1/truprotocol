@@ -363,6 +363,9 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
       ...(await azFeeAuthwitActions(modeVal, years, az.address)),
       { kind: 'call', contract: c.azns.address.toString(), method: 'register', args: [nh.toString(), packLabel(raw).toString(), len, az.address, years, modeVal] },
     ]);
+    // Publish the discovery key while the user is already in a signing flow
+    // (the background watcher never prompts an external wallet unasked).
+    ensureBeaconKey(onStep).catch(() => { /* next write retries */ });
   } else {
     await sendRetry(() => c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal));
   }
@@ -385,6 +388,12 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
 // an old deployment. On-chain lease_status/owner_of/mode_of/expiry_of are the
 // source of truth; searching a name you own re-adds it to the list automatically.
 const LS_NAMES = `azns.mynames.${REGISTRY_TAG}`;
+// Scoped per registry AND per active account: the embedded wallet keeps the
+// base key (also the pre-connect default, since a browser is always embedded
+// until the user connects an external wallet), while each external account
+// gets its own suffix - otherwise connecting Azguard would show the embedded
+// account's names as the wallet's own.
+const namesKey = () => { const a = azMode(); return a ? `${LS_NAMES}.az.${a.address.slice(0, 18)}` : LS_NAMES; };
 export type MyName = { label: string; mode: ModeName; registeredAt?: number; years?: number };
 
 // One-time migration: drop the pre-scoping global names key (replaced by the
@@ -393,11 +402,11 @@ try { globalThis.localStorage?.removeItem('azns.mynames'); } catch { /* no local
 
 export function myNames(): MyName[] {
   try {
-    const list = JSON.parse(lsGet(LS_NAMES) || '[]');
+    const list = JSON.parse(lsGet(namesKey()) || '[]');
     return Array.isArray(list) ? list.filter((n) => n && typeof n.label === 'string') : [];
   } catch { return []; }
 }
-function saveNames(list: MyName[]) { lsSet(LS_NAMES, JSON.stringify(list)); }
+function saveNames(list: MyName[]) { lsSet(namesKey(), JSON.stringify(list)); }
 
 function recordName(raw: string, mode: ModeName, years = 1) {
   const label = raw.trim().toLowerCase().replace(/\.tru$/, '');
@@ -691,6 +700,9 @@ export async function getTestTokens(amount: bigint, onStep: (m: string) => void 
   // This credit is a self-mint, not an incoming payment - tell the watcher to
   // absorb the next balance increase silently (no "Payment received" toast).
   suppressIncreaseUntil = Date.now() + 5 * 60 * 1000;
+  // External wallet: publish the discovery key while the user is already in a
+  // signing flow (the watcher never prompts an external wallet unasked).
+  if (azMode()) ensureBeaconKey(onStep).catch(() => { /* next write retries */ });
   return addr;
 }
 
@@ -725,6 +737,7 @@ export function startPaymentWatcher(
 ) {
   stopPaymentWatcher();
   let last: bigint | null = null;
+  let lastFor = ''; // which account the baseline belongs to
   let beaconKeyAttempted = false;
   const tick = async () => {
     if (txInFlight > 0) return; // never compete with an in-flight proof
@@ -733,7 +746,11 @@ export function startPaymentWatcher(
     // through the normal "payment received" path.
     try {
       await scanBeaconPayments();
-      if (!beaconKeyAttempted && (azMode() || lsGet(LS.accountDeployed))) {
+      // Publish the discovery key opportunistically for the EMBEDDED wallet
+      // only: it signs silently. An external wallet would pop a signing
+      // prompt out of nowhere on a background tick — its key is published
+      // right after a user-initiated write instead (register/getTestTokens).
+      if (!beaconKeyAttempted && !azMode() && lsGet(LS.accountDeployed)) {
         beaconKeyAttempted = true; // one shot per session; reset on failure
         ensureBeaconKey().catch(() => { beaconKeyAttempted = false; });
       }
@@ -741,6 +758,11 @@ export function startPaymentWatcher(
     try {
       const bal = await tokenBalance();
       if (bal === null) return;
+      // Re-baseline when the ACTIVE ACCOUNT changed (connecting/disconnecting
+      // an external wallet): comparing another account's balance against the
+      // previous one would fire a false "payment received".
+      const who = accountAddress() ?? '';
+      if (who !== lastFor) { lastFor = who; last = bal; onBalance?.(bal); return; }
       onBalance?.(bal);
       if (last !== null && bal > last) {
         if (Date.now() < suppressIncreaseUntil) suppressIncreaseUntil = 0; // self-mint: absorb once
@@ -846,10 +868,33 @@ export function feeMode(): { funded: boolean; label: string } | null {
 export const isLocal = IS_LOCAL;
 
 export async function hardReset(): Promise<void> {
-  Object.values(LS).forEach((k) => globalThis.localStorage?.removeItem(k));
+  // Every key this dApp owns (names, stealth secrets, beacon bookkeeping,
+  // wallet flags) plus the Azguard client-lib's session key — not just the
+  // handful in LS. Enumerate first: removing while iterating skips keys.
+  try {
+    const ls = globalThis.localStorage;
+    if (ls) {
+      const doomed: string[] = [];
+      for (let i = 0; i < ls.length; i++) {
+        const k = ls.key(i);
+        if (k && (k.startsWith('azns.') || k.startsWith('azguard:'))) doomed.push(k);
+      }
+      doomed.forEach((k) => ls.removeItem(k));
+    }
+  } catch { /* best effort */ }
+  // Older builds kept the PXE in IndexedDB; the nightly keeps it in OPFS
+  // (SQLite worker). Wipe both so the reset actually resets the wallet state.
   try {
     const idb: any = globalThis.indexedDB;
     if (idb?.databases) { const dbs = await idb.databases(); await Promise.all(dbs.map((d: any) => d?.name && idb.deleteDatabase(d.name))); }
+  } catch { /* best effort */ }
+  try {
+    const root: any = await (globalThis.navigator as any)?.storage?.getDirectory?.();
+    if (root?.entries) {
+      const names: string[] = [];
+      for await (const [name] of root.entries()) names.push(name);
+      await Promise.all(names.map((n) => root.removeEntry(n, { recursive: true }).catch(() => { /* locked by a live worker - dies with the reload */ })));
+    }
   } catch { /* best effort */ }
   globalThis.location?.reload();
 }
@@ -908,10 +953,15 @@ const BEACON_ADDRESS = (process.env.BEACON_ADDRESS && process.env.BEACON_ADDRESS
 const BEACON_DOMAIN = 0x747275n; // "tru" — domain-separates every beacon hash
 const LS_BEACON_KEY = `azns.beacon.key.${REGISTRY_TAG}`;
 const LS_BEACON_SEEN = `azns.beacon.seen.${REGISTRY_TAG}`;
-// Azguard sessions scope beacon state per EXTERNAL account (one browser may
-// connect different wallet accounts over time).
-const beaconFlagKey = () => { const a = azMode(); return a ? `${LS_BEACON_KEY}.az.${a.address.slice(0, 18)}` : LS_BEACON_KEY; };
-const beaconSeenKey = () => { const a = azMode(); return a ? `${LS_BEACON_SEEN}.az.${a.address.slice(0, 18)}` : LS_BEACON_SEEN; };
+// Beacon bookkeeping is scoped per ACTIVE ACCOUNT (embedded or external): a
+// hardReset mints a fresh embedded account, and one browser may connect
+// different external accounts over time — a stale registry-wide "key
+// published" flag would silently skip publishing for the new account and
+// break its payment discovery. Losing the flag is harmless: ensureBeaconKey
+// re-checks the on-chain key first.
+const beaconScope = () => { try { return activeAccount().toString().slice(0, 18); } catch { return 'none'; } };
+const beaconFlagKey = () => `${LS_BEACON_KEY}.${beaconScope()}`;
+const beaconSeenKey = () => `${LS_BEACON_SEEN}.${beaconScope()}`;
 
 async function grumpkinLib() {
   const { Grumpkin } = await import('@aztec/foundation/crypto/grumpkin');

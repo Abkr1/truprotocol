@@ -80,14 +80,24 @@ export async function azguardConnect(): Promise<{ address: string; chain: string
         [{ chains: [WANTED_CHAIN], methods }],           // optional: our chain
       );
     }
+    const pick = (accounts: CaipAccount[]) => {
+      // Prefer an account on the chain THIS dApp runs on; only fall back to
+      // whatever the wallet approved (surfaced as "wrong network" in the UI).
+      const account = accounts.find((a) => a.startsWith(`${WANTED_CHAIN}:`)) ?? accounts[0];
+      const [ns, chainNum, address] = account.split(':');
+      return { account, address, chain: `${ns}:${chainNum}` as CaipChain, chainSupported: account.startsWith(`${WANTED_CHAIN}:`) };
+    };
     const accounts = client.accounts;
     if (!accounts.length) throw new Error('Azguard connected but approved no accounts.');
-    const account = accounts[0];
-    const [ns, chainNum, address] = account.split(':');
-    const chain = `${ns}:${chainNum}` as CaipChain;
-    const chainSupported = accounts.some((a) => a.startsWith(`${WANTED_CHAIN}:`));
     client.onDisconnected.addHandler(() => { az = null; globalThis.localStorage?.removeItem(LS_SESSION); });
-    az = { client, account, address, chain, chainSupported, walletVersion };
+    // The user can change approved accounts inside the wallet mid-session -
+    // follow along so operations keep targeting an account we actually hold.
+    client.onAccountsChanged.addHandler((next) => {
+      if (!az) return;
+      if (!next.length) { az = null; globalThis.localStorage?.removeItem(LS_SESSION); return; }
+      az = { ...az, ...pick(next) };
+    });
+    az = { client, walletVersion, ...pick(accounts) };
     globalThis.localStorage?.setItem(LS_SESSION, '1');
     return az;
   })();
