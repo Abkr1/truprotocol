@@ -1,186 +1,247 @@
-# AZNS — Aztec Naming Service (selective-privacy)
+# truProtocol — private `.tru` names on Aztec
 
 A naming service for Aztec that does what ENS *can't*: a public, squat-proof
-namespace where **resolution is private and selectively disclosable**. Three
-modes per name:
+namespace where **resolution is private and selectively disclosable**, payments
+to names are **invisible on-chain**, and incoming payments **discover
+themselves** without the recipient ever learning who to look for. Three modes
+per name:
 
 | Mode | Who can resolve the name → address mapping |
 |------|--------------------------------------------|
-| `PUBLIC` (0) | Anyone (ENS-equivalent). Resolves to its **owner by default** the moment it's registered (no set-address step; the owner can repoint anytime). Also supports multichain address records (point a name at Ethereum/Solana/etc. addresses, ENS-style coin types). |
-| `SELECTIVE` (1) | Only parties the owner explicitly grants — and each can be shown a *different* target |
-| `STEALTH` (2) | Name publicly resolves to a stealth meta-key; anyone can pay, and each payment lands on a fresh, unlinkable one-time address. On-chain resolver + crypto prototype are done (`npm run stealth:demo`); the wallet-side send/scan/sweep is the remaining work — see [docs/stealth-mode.md](docs/stealth-mode.md). |
+| `PUBLIC` (0) | Anyone (ENS-equivalent). Resolves to its **owner by default** the moment it's registered (no set-address step; repoint anytime). Supports multichain address records (Ethereum/Bitcoin/Solana/… via SLIP-0044 coin types). |
+| `SELECTIVE` (1) | Only parties the owner explicitly grants — and each can be shown a *different* target. |
+| `STEALTH` (2) | The name publicly resolves to a stealth meta-key; anyone can pay, each payment lands on a fresh, unlinkable one-time address. The dApp auto-publishes the meta-key at registration. |
 
 The chain only ever stores a **hash** of the label, never the cleartext name.
+In every mode, payments themselves are private — no sender, recipient, or
+amount ever appears on-chain.
 
-> **Status (testnet):** built for aztec `4.3.1`, deployed to Aztec testnet, and exercised
-> end-to-end (register, resolve, multichain records). A modern search-first dApp lives in
-> [`dapp/`](dapp/). See [scripts](scripts/) for `deploy:testnet`, `register:testnet`,
-> and `stealth:demo`. Build/run notes are in this file below; the dApp points at the live
-> contract via `dapp/.env`. **Unaudited — testnet only** (Aztec mainnet has a known proving
-> vulnerability pending the v5 release).
-
-**v4 is permissionless.** Anyone can register any available name — no identity
-proof, no KYC, no allowlist, no gatekeepers. The only gates are economic and
-structural: per-mode annual pricing, a trustlessly-enforced minimum label
-length, and the lease/grace lifecycle (an active or in-grace name can't be
-taken). Squatting resistance comes from pricing, not identity.
+> **Status:** built on aztec **`5.0.0-nightly.20260701`** (the AZUP-2 / v5
+> protocol line), deployed to the public v5 testnet, and exercised end-to-end
+> **in a real browser**: self-serve tokens → paid registration → private
+> payment → autonomous payment discovery. **Unaudited — testnet only.**
 
 ---
 
-## Architecture in one breath
+## What's built
 
-Two registries fused in one contract (`azns/src/main.nr`):
+### Contracts (Noir / aztec-nr)
 
-- **Public existence registry** (`owners`, `expiry`, `mode`) — enforces global
-  uniqueness and powers discovery. Stores commitments/hashes, not resolutions.
-- **Private resolver** (`resolutions`) — encrypted UTXO notes carrying the
-  name → address target, readable only by the note's recipient.
+| Contract | Purpose |
+|---|---|
+| [`azns/`](azns/) | The registry. Permissionless, charged registration/renewal (the contract pulls the per-mode fee from the buyer's token balance via an authwit'd `transfer_in_private`), public existence registry + private resolver notes, per-name epochs (takeover safety), multichain address records, stealth meta-keys, and encrypted on-chain **label backups** so "My names" follows the account to any device. 15 TXE tests. |
+| [`faucet/`](faucet/) | Open-mint test-token faucet (approved as a token minter) so any fresh browser account can self-serve tokens and exercise the paid flow. Test-net only. |
+| [`beacon/`](beacon/) | **Payment discovery.** Recipients publish a beacon key (`register_key`); payers `announce()` each payment under a tag derived from that public key, with the **payer identity ECDH-encrypted** in the payload. The kernel silos the caller-chosen tag; recipients recompute their own tag and fetch matching logs straight from any node. |
 
-Selective disclosure = the owner mints one resolution note per authorised
-viewer, each potentially pointing somewhere different.
+### The payment-discovery problem (and its solution)
+
+On Aztec, a wallet only finds incoming private notes from senders it has
+**registered** — so a payment from a stranger is invisible until you learn who
+paid you. Both known escape hatches were built and proven live on testnet:
+
+- **Option A — on-chain beacon** (shipped in the dApp): no off-chain
+  infrastructure, chain-only. An observer who derives the (public) tag learns
+  only *that* a payment arrived — never from whom nor how much.
+  [`scripts/beacon_a_e2e.ts`](scripts/beacon_a_e2e.ts)
+- **Option B — off-chain relay** (reference implementation): payer posts an
+  encrypted hint to a relay the recipient polls.
+  [`scripts/relay_b_e2e.ts`](scripts/relay_b_e2e.ts)
+- The shared primitive (registerSender reveals *historical* notes) is proven in
+  [`scripts/discovery_e2e.ts`](scripts/discovery_e2e.ts), and the full dApp
+  loop (unknown payer → autonomous discovery in the browser) in
+  [`scripts/pay_browser_e2e.ts`](scripts/pay_browser_e2e.ts).
+
+### dApp ([`dapp/`](dapp/))
+
+Search-first React app (vite, production build served via `vite preview`):
+
+- **Search / register / renew / repoint / multichain records**, with per-mode
+  pricing pulled from the chain and friendly balance checks before paid calls.
+- **Private payments to names or raw addresses** — private transfer only (no
+  public path exists in the UI), with an automatic beacon `announce` so the
+  recipient's wallet discovers the payment by itself. Incoming payments surface
+  as a "Payment received" toast with zero user action (the watcher scans the
+  beacon tag, decrypts the payer, registers the sender, and the balance
+  updates).
+- **Two wallet modes:**
+  - *Embedded (default):* a self-custodied per-browser account (secret in
+    localStorage, **no house key in the bundle**), deployed lazily on first
+    write via the sponsored FPC, with a one-time checkpoint wait so the first
+    transaction never races note sync.
+  - *External — Azguard:* a full bring-your-own-keys path over
+    `@azguardwallet/client` (dependency-free, **version-neutral** inpage RPC —
+    no second `aztec.js` in the bundle). When connected: identity, private
+    balances, and label restore follow the external account; register/renew
+    ship the fee authwit atomically with the call; pay+announce batch into
+    **one** wallet transaction; discovered payers are registered in the wallet
+    via `register_sender`. Verified end-to-end against a faithful RPC mock;
+    live execution lights up when Azguard ships an AZUP-2 build.
+- **Self-serve onboarding:** "Get test tokens" claims from the open faucet.
+- Chain-reset hardening: all chain-dependent local state (deploy flags, names,
+  beacon bookkeeping) is scoped per registry deployment.
+
+### Ops & tooling ([`scripts/`](scripts/))
+
+- **Deploys:** `deploy:testnet` (token + AZNS → writes `dapp/.env`),
+  `deploy:faucet` (+ minter approval + fresh-account open-claim proof),
+  `deploy:beacon`.
+- **Fees on a faucet-rationed testnet:** `fees.ts` picks the payer
+  automatically (native fee juice → faucet claim → sponsored FPC) with a
+  `FEE_MODE` override; `claim:fpc` consumes a faucet drip **for the shared
+  sponsored FPC** (auto-detects the claim's recipient); `juice_watch` /
+  `gas_probe` poll for drips landing / gas-price dips.
+- **Live E2E suite** (all PASS on the v5 testnet): `charge:e2e` (fee
+  enforcement: reverts broke, charges exactly), `discovery_e2e`, `relay_b_e2e`,
+  `beacon_a_e2e`, `pay_browser_e2e`.
 
 ---
 
 ## Lease & pricing (ENS-style)
 
-Names are **rented per year, not owned forever** — same model as ENS. Annual
-price is tiered by **privacy mode** (more privacy, higher price):
+Names are **rented per year** — $21/yr flat across modes ($ held as USD cents
+on-chain; `unit_per_cent` converts to token base units at deploy time). Labels
+are 3–31 characters, enforced on-chain.
 
-| Mode       | Price / year |
-|------------|--------------|
-| Public     | $21          |
-| Selective  | $21          |
-| Stealth    | $21          |
+- **Register** charges `price × years` and sets an expiry; the name resolves to
+  its owner immediately.
+- **Renew** extends the lease; anyone may pay to renew any name.
+- **Grace period** (90 days): only the prior owner may renew. After grace, the
+  name is freely registerable again. `lease_status()` → 0 available / 1 active
+  / 2 grace.
+- **Fee settlement is real:** the contract pulls the fee from the buyer's
+  balance via `Token::transfer_in_private` (authwit-authorized) into the
+  treasury. Testnet uses a disposable test token; a mainnet deploy points
+  `payment_token` at a USD-pegged stablecoin and sets the real
+  `treasury`/`unit_per_cent` — no oracle needed.
 
-Labels are 3–31 characters; both bounds are enforced on-chain.
+**Trustless pricing:** registration is priced by the same `mode` value that
+gets written to storage. Renewals charge the claimed mode in private and the
+enqueued public step asserts it equals the stored mode — underpaying reverts.
+The label length is bound *into* `name_hash`, so lying about length produces a
+hash that doesn't match the name.
 
-How the lifecycle works:
-- **Register** charges `price × years` and sets an expiry.
-- **Renew** (`renew`) extends the lease; anyone may pay to renew any name.
-- **Grace period** (90 days after expiry): only the prior owner may renew; no
-  one else can claim it. After grace, the name becomes freely registerable
-  again by anyone.
-- `lease_status(name_hash)` returns 0 available / 1 active / 2 grace.
+**Takeover safety:** when a lapsed name is re-registered, a per-name epoch
+increments, so the previous owner's outstanding selective grants stop
+resolving.
 
-**Trustless pricing:** registration is priced by the `mode` argument — the very
-value the finalizer writes to storage, so what you pay for is what you get.
-Renewals happen in private where the stored mode can't be read, so `renew`
-takes the mode as a *claim*: the private side charges it, and the enqueued
-public step asserts it equals the stored mode — claiming a cheaper mode reverts
-the whole transaction. The minimum-length rule stays tamper-proof because
-`lib.ts` binds the label length *into* `name_hash` (`hash(label_bytes, length)`);
-lying about length produces a hash that doesn't match the name.
+---
 
-**Fee settlement is a stub.** Prices are held in USD cents; `_charge` is where
-you wire the actual token transfer. Two honest options, documented in the code:
-(a) accept a USD-pegged stablecoin 1:1 (no oracle, simplest), or (b) accept
-AZTEC/native via a price oracle (adds a trust + failure surface). No money moves
-until you wire this, so the lease logic is fully testable now.
-
-> **Takeover safety:** when a lapsed name is taken over by someone new, a
-> per-name epoch counter increments so the previous owner's selective grants
-> stop resolving (stale `ResolutionNote`s no longer match the live epoch).
-> `current_epoch(name_hash)` exposes this state.
+## Repository layout
 
 ```
-aztec-naming-service/
-├── README.md                  this file
-├── package.json               TS deps + scripts (codegen, demo)
-├── tsconfig.json              TS compiler config
-├── azns/
-│   ├── Nargo.toml             contract manifest — PIN THE TAG
+truprotocol/
+├── azns/                 registry contract (main.nr, resolution_note.nr, test.nr)
+├── faucet/               open-mint test-token faucet contract
+├── beacon/               payment-discovery beacon contract
+├── dapp/                 the browser dApp (vite + React)
 │   └── src/
-│       ├── main.nr            the contract (permissionless, 3 resolution modes)
-│       ├── resolution_note.nr custom private note {name_hash,target,expiry}
-│       └── test.nr            native TXE tests (aztec test)
-└── scripts/
-    ├── lib.ts                 name normalisation + Poseidon hashing (.tru)
-    ├── sponsored_fpc.ts       testnet fee-payment helper
-    └── demo.ts                end-to-end sandbox demo of all 3 modes
+│       ├── aztec.ts      service layer: wallet modes, flows, beacon discovery
+│       ├── azguard.ts    Azguard external-wallet adapter (version-neutral RPC)
+│       ├── AzguardButton.tsx  topbar connect control
+│       └── contracts/    generated TS bindings (synced from */target)
+├── scripts/              deploys, fee tooling, live E2E suite, shared lib.ts
+└── package.json          tsx-based script entrypoints (deploy:*, charge:e2e, …)
 ```
 
 ---
 
-## Prerequisites
+## Build & run
+
+Development happens in **WSL** (Ubuntu) on Windows or any Linux/macOS shell.
+Proving is client-side — no Docker needed for the testnet flow.
 
 ```bash
-# 1. Install the Aztec toolchain (Docker required)
-bash -i <(curl -s https://install.aztec.network)
-aztec-up                 # installs sandbox + aztec-nargo + CLI
+# 1. Toolchain — pin the EXACT version the target network runs.
+bash -i <(curl -s https://install.aztec.network)      # installs aztec-up
+aztec-up install 5.0.0-nightly.20260701               # match package.json
+# installs to ~/.aztec/versions/<v>/bin (activated via ~/.aztec/current/bin)
 
-# 2. Confirm your versions, then PIN them
-aztec --version
-```
+# 2. Compile contracts + generate TS bindings
+cd azns   && aztec compile --force && cd ..
+cd faucet && aztec compile --force && cd ..
+cd beacon && aztec compile --force && cd ..
+aztec codegen ./azns/target   -o ./azns/target
+aztec codegen ./faucet/target -o ./faucet/target
+aztec codegen ./beacon/target -o ./beacon/target
 
-> ⚠️ **Pin the version.** Open `azns/Nargo.toml` and set the `tag` on every
-> dependency to the EXACT version `aztec --version` printed. Aztec.nr's macro
-> and storage API changes between releases — a tag mismatch is the most common
-> cause of compile failures.
-
----
-
-## Build & test
-
-```bash
-# Start the local sandbox (separate terminal)
-aztec start --sandbox
-
-# Compile the contract
-cd azns
-aztec-nargo compile
-
-# Fast native tests (no sandbox needed)
-aztec test
-
-# Generate the TS contract bindings
-cd ..
+# 3. Scripts
 npm install
-npm run codegen
+npm run deploy:testnet     # token + AZNS  -> writes dapp/.env
+npm run deploy:faucet      # faucet + minter approval + open-claim proof
+npm run deploy:beacon      # payment-discovery beacon -> dapp/.env
 
-# Run the end-to-end demo against the sandbox (all 3 modes)
-npm run demo
+# 4. dApp
+cd dapp && npm install && npm run build && npx vite preview --port 5173
 ```
 
-Expected demo output (addresses will differ):
+> **Version discipline.** `azns/faucet/beacon Nargo.toml` tags, the root
+> `package.json`, and `dapp/package.json` must all pin the SAME aztec version,
+> and the `aztec` Noir dep must come from the same source tree as the `token`
+> dep (`noir-projects/aztec-nr/aztec`) or Nargo sees two distinct crates.
 
-```
-[PUBLIC]    trulib.tru -> 0x<bob>          (anyone can read)
-[PRIVATE]   abubakar.tru -> 0x<bob>        (only alice can read)
-            public read attempt: 0x0      (privacy holds)
-[SELECTIVE] trulib-corp.tru
-  auditor sees: 0x<alice>   (treasury)
-  bob sees    : 0x<bob>     (routing)
-  -> same name, different resolution per viewer.
-```
+### Fees on the testnet
+
+The deployer account is funded from the faucet
+(<https://aztec-faucet.dev-nethermind.xyz> — one fee-juice drip per 8h): paste
+an address, then consume the claim with `CLAIM_AMOUNT/SECRET/INDEX` env vars —
+`setupDeployer` bootstraps the account with it, or `npm run claim:fpc`
+finalizes a drip made to the **shared sponsored FPC** (which pays for dApp
+browser accounts). `FEE_MODE=sponsored` routes deploys through the FPC.
+
+### dApp serving notes (nightly SDK)
+
+The browser PXE persists in a **SQLite-OPFS worker**; three things matter
+(already wired in this repo, documented for posterity):
+
+1. Serve the **production build** (`vite preview`) — the dev-mode dependency
+   optimizer breaks the worker three different ways.
+2. `sync.mjs` ships `sqlite3.wasm` (unhashed name) + the OPFS async-proxy
+   worker via `public/assets/` — rollup doesn't emit them, and vite's SPA
+   fallback would silently answer the wasm path with `index.html`.
+3. COOP/COEP headers go on **every** response (a middleware covers dev +
+   preview) — module workers need them on their own response under
+   cross-origin isolation.
 
 ---
 
-## What's intentionally simplified (and how to harden it)
+## Testing
 
-This is a **readable testnet reference**, not a production system:
+- **TXE (contract) tests:** `azns/src/test.nr` — 15 tests covering modes,
+  lease lifecycle, pricing enforcement, records, epochs, and the token charge
+  (deploys a real Token, mints, builds the fee authwit).
+  Requires the canonical transpiled Token artifact in `target/` (see the
+  header comment in `test.nr`), then `nargo test --test-threads 1`.
+- **Live E2E (run against the public testnet):**
 
-1. ✅ **Custom note type** — DONE. `src/resolution_note.nr` defines
-   `ResolutionNote {name_hash, target, expiry, epoch}`, so one recipient can
-   hold capabilities for many names and filter precisely per-name.
-2. **Grants are not revocable on demand** — by design. A grant is an encrypted
-   note already in the recipient's wallet; no on-chain action can nullify a note
-   the owner can't produce a nullifier for, and the recipient has already
-   decrypted the target. Grants last for the life of the name (a takeover after
-   the lease fully lapses bumps `name_epoch` and invalidates outstanding grants).
-   `grant` enqueues an internal public `_assert_grantable` to verify ownership.
-3. **Expiry enforcement** — the note carries `expiry`, but `my_resolution`
-   currently only checks it's non-zero. Tighten to compare against the chain
-   timestamp (likely via an enqueued public check) once confirmed for your tag.
-4. **Economics** — no fees or auctions. Add an AZTEC-token charge in
-   `register()` and a premium-name auction as a phase-2 layer.
-5. **Normalisation** — `scripts/lib.ts::normaliseName` must be the single
-   source of truth across every client, or names will silently diverge.
+| Script | Proves |
+|---|---|
+| `charge:e2e` | fee is enforced: register reverts at 0 balance, charges exactly the fee when funded |
+| `discovery_e2e` | an incoming note is invisible until `registerSender(payer)`, then a historical back-scan reveals it |
+| `relay_b_e2e` | Option B: recipient learns the payer from an off-chain relay only |
+| `beacon_a_e2e` | Option A: recipient finds the log by recomputing its own siloed tag from public key material |
+| `pay_browser_e2e` | the dApp discovers an unknown payer's payment autonomously (used with the browser open) |
 
 ---
 
-## ⛔ Safety
+## Version landscape (read before touching anything)
 
-- Unaudited. Do not hold real value.
-- The network itself has a **known critical proving-system vulnerability**
-  scheduled for the **v5 release (~July 2026)**. Build and test now; wait for
-  v5 before any mainnet launch.
+- The public **testnet runs the AZUP-2 / v5 pre-release line** (rolling `dev`
+  node ≈ the latest `5.0.0-nightly.*`; npm dist-tag `prerelease`). It resets
+  occasionally — all chain-dependent dApp state is scoped per deployment, and
+  redeploying is one command chain.
+- **Aztec mainnet ("Alpha") runs 4.3.1 today; AZUP-2 (v5) reaches mainnet in
+  July 2026** — at which point the wallet ecosystem (Azguard targets 4.x today)
+  converges with this codebase's line and the external-wallet path executes
+  live. The dApp's Azguard integration is deliberately version-neutral so no
+  code changes are needed then.
+
+## Safety
+
+- **Unaudited. Do not hold real value.** A security audit is a hard gate before
+  any mainnet deploy.
+- Permissionless by design: no KYC, no allowlists — squat resistance comes from
+  pricing and the lease lifecycle, not identity.
+- The dApp embeds **no funded keys**: the embedded wallet is per-browser
+  self-custody; production users bring their own wallet.
+- Secrets never enter git: deployer keys (`scripts/.deployer.json`),
+  deployment env (`dapp/.env`), and local run helpers are gitignored.
