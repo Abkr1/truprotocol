@@ -196,21 +196,29 @@ function activeAccount(): AztecAddress {
 // Register this registry's contracts in the WALLET's PXE once per session so
 // its simulations/txs can resolve them. Best-effort: on a wallet build that
 // doesn't support this network yet, errors surface on the actual operation.
-let azContractsRegistered = '';
-async function ensureAzContracts(): Promise<void> {
+// Memoized by PROMISE (not a done-flag) so a concurrent caller - the balance
+// watcher racing a user action - awaits the in-flight registration instead of
+// proceeding before the wallet knows the contracts.
+let azContractsFor = '';
+let azContractsJob: Promise<void> | null = null;
+function ensureAzContracts(): Promise<void> {
   const a = azMode();
-  if (!a || azContractsRegistered === a.address) return;
-  azContractsRegistered = a.address;
-  const addrs = [
-    conn?.azns.address.toString(),
-    await paymentToken().catch(() => ''),
-    BEACON_ADDRESS,
-    (process.env.FAUCET_ADDRESS && process.env.FAUCET_ADDRESS.length > 0) ? process.env.FAUCET_ADDRESS : '',
-  ].filter((x): x is string => !!x);
-  for (const addr of addrs) {
-    try { await azRegisterContract(addr); }
-    catch (e) { console.warn('azguard register_contract failed (wallet may not support this network yet):', addr, e); }
-  }
+  if (!a) return Promise.resolve();
+  if (azContractsFor === a.address && azContractsJob) return azContractsJob;
+  azContractsFor = a.address;
+  azContractsJob = (async () => {
+    const addrs = [
+      conn?.azns.address.toString(),
+      await paymentToken().catch(() => ''),
+      BEACON_ADDRESS,
+      (process.env.FAUCET_ADDRESS && process.env.FAUCET_ADDRESS.length > 0) ? process.env.FAUCET_ADDRESS : '',
+    ].filter((x): x is string => !!x);
+    for (const addr of addrs) {
+      try { await azRegisterContract(addr); }
+      catch (e) { console.warn('azguard register_contract failed (wallet may not support this network yet):', addr, e); }
+    }
+  })();
+  return azContractsJob;
 }
 
 // v5's PXE runs ONE job at a time ("concurrent execution is not supported"), so
