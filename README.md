@@ -126,7 +126,26 @@ resolving.
 
 ---
 
-## Repository layout
+## Revenue / treasury
+
+Every registration and renewal fee is pulled **directly into the `treasury`
+address** — a constructor argument, held as `PublicImmutable`: it is fixed at
+deploy time and there is deliberately **no "change treasury" function**. Pick
+it carefully; changing it means deploying a new registry.
+
+- **Current testnet deployment:** `TREASURY_ADDRESS` was left unset, so it
+  defaulted to the deployer account (`scripts/.deployer.json`, gitignored).
+  Fine for testing — the fees are worthless faucet-minted test tokens.
+- **Mainnet checklist:** deploy with `TREASURY_ADDRESS` set to a dedicated
+  cold wallet or multisig (never the hot deployer key), `PAY_TOKEN_ADDRESS`
+  set to a real USD-pegged stablecoin, and `UNIT_PER_CENT` set to the
+  stablecoin's base-units-per-cent (e.g. `1e16` for 18 decimals).
+- **Fees arrive as PRIVATE notes.** `transfer_in_private` means revenue is
+  invisible on-chain — and the treasury operator has the same note-discovery
+  reality as any recipient: fee notes from unknown buyers surface after
+  registering the payer (`revealFrom`) or via the discovery beacon. Plan the
+  treasury's wallet tooling accordingly; don't assume a block explorer will
+  show income.
 
 ```
 truprotocol/
