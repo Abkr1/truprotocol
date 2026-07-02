@@ -36,3 +36,6 @@ _*.sh
 
 # dApp local env (may hold the demo house-wallet secret)
 dapp/.env
+
+# beacon build artifacts (compiled like azns/faucet targets)
+beacon/target/

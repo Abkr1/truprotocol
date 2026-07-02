@@ -15,7 +15,7 @@ compiler_version = ">=0.34.0"
 # (aztec-packages/noir-projects/aztec-nr/aztec), otherwise Nargo treats the two
 # aztec crates as DISTINCT types and the cross-contract token call (and the TXE
 # test helpers vs Token interface) fail to typecheck - a dependency diamond.
-aztec = { git = "https://github.com/AztecProtocol/aztec-packages/", tag = "v5.0.0-rc.1", directory = "noir-projects/aztec-nr/aztec" }
+aztec = { git = "https://github.com/AztecProtocol/aztec-packages/", tag = "v5.0.0-nightly.20260701", directory = "noir-projects/aztec-nr/aztec" }
 # Token interface for the registration-fee charge (transfer_in_private pull).
-token = { git = "https://github.com/AztecProtocol/aztec-packages/", tag = "v5.0.0-rc.1", directory = "noir-projects/noir-contracts/contracts/app/token_contract" }
+token = { git = "https://github.com/AztecProtocol/aztec-packages/", tag = "v5.0.0-nightly.20260701", directory = "noir-projects/noir-contracts/contracts/app/token_contract" }
 # Custom ResolutionNote lives in src/resolution_note.nr (no extra dep needed).
