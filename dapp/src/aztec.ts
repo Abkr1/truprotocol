@@ -15,8 +15,10 @@ import { getContractInstanceFromInstantiationParams } from '@aztec/aztec.js/cont
 import { createAztecNodeClient } from '@aztec/aztec.js/node';
 import { getFeeJuiceBalance } from '@aztec/aztec.js/utils';
 import { EmbeddedWallet } from '@aztec/wallets/embedded';
+import { openTmpStore } from '@aztec/kv-store/sqlite-opfs';
 import { SponsoredFPCContract } from '@aztec/noir-contracts.js/SponsoredFPC';
 import { AZNSContract } from './contracts/AZNS';
+import { poseidon2Hash } from '@aztec/foundation/crypto/poseidon';
 import {
   nameHash, labelLength, normaliseName, packLabel, unpackLabel,
   MODE, MIN_LABEL, MAX_LABEL, ONE_YEAR_SECS, nowSecs, type ModeName,
@@ -27,10 +29,14 @@ const NODE_URL = (process.env.AZTEC_NODE_URL && process.env.AZTEC_NODE_URL.lengt
   : 'http://localhost:8080';
 const IS_LOCAL = /localhost|127\.0\.0\.1/.test(NODE_URL);
 
+// Chain-dependent state is scoped to the configured registry: a redeploy (or a
+// testnet chain RESET) must never carry an "account already deployed" flag or
+// beacon bookkeeping over to a chain where it isn't true.
+const REGISTRY_TAG = (process.env.AZNS_ADDRESS || 'local').toLowerCase().slice(0, 14);
 const LS = {
   secret: 'azns.secret',
   salt: 'azns.salt',
-  accountDeployed: 'azns.accountDeployed',
+  accountDeployed: `azns.accountDeployed.${REGISTRY_TAG}`,
   aznsAddress: 'azns.aznsAddress',
   account: 'azns.account',
 };
@@ -67,9 +73,21 @@ const lsGet = (k: string) => globalThis.localStorage?.getItem(k) ?? null;
 const lsSet = (k: string, v: string) => globalThis.localStorage?.setItem(k, v);
 
 function toAddr(v: any): AztecAddress {
-  if (typeof v === 'bigint' || typeof v === 'number') return AztecAddress.fromField(new Fr(BigInt(v)));
+  if (typeof v === 'bigint' || typeof v === 'number') return AztecAddress.fromFieldUnsafe(new Fr(BigInt(v)));
   const s = (v && typeof v.toString === 'function') ? v.toString() : String(v);
-  return AztecAddress.fromField(Fr.fromString(s));
+  return AztecAddress.fromFieldUnsafe(Fr.fromString(s));
+}
+
+// The testnet runs a rolling `dev` node that dropped the debug-only RPC method
+// `aztec_registerContractFunctionSignatures`. The PXE calls it during PXE.create
+// and registerContract, so an un-patched connect() aborts with -32601 ("Method
+// not found") and the wallet never connects. Wrap the node client so that ONE
+// debug method is a harmless no-op; every other call passes straight through.
+function tolerantNode(url: string): any {
+  const n: any = createAztecNodeClient(url);
+  return new Proxy(n, {
+    get(t, p, r) { return p === 'registerContractFunctionSignatures' ? async () => {} : Reflect.get(t, p, r); },
+  });
 }
 
 /** Light read-only connect: ready to search, no on-chain account deploy yet. */
@@ -78,11 +96,19 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
   if (connecting) return connecting;
   connecting = (async () => {
     const proverEnabled = !IS_LOCAL; // real proofs on testnet (writes only)
-    const wallet = await EmbeddedWallet.create(NODE_URL, { pxe: { proverEnabled } });
+    // The nightly SDK stores both the PXE and the wallet DB in SQLite-OPFS, and
+    // its SAH pool takes an EXCLUSIVE lock on one shared default directory — two
+    // OPFS stores in a tab deadlock ("another open Access Handle"), so
+    // EmbeddedWallet.create throws. Give the wallet DB an in-memory store: only
+    // the PXE then uses OPFS (one pool, no contention). The wallet DB only
+    // caches accounts + senders, which we re-derive from the localStorage
+    // secret (createSchnorrAccount) and the beacon scan on every load anyway.
+    const walletStore = await openTmpStore(true);
+    const wallet = await EmbeddedWallet.create(tolerantNode(NODE_URL), { pxe: { proverEnabled }, walletDb: { store: walletStore } });
 
     const fpc = await getContractInstanceFromInstantiationParams(SponsoredFPCContract.artifact, { salt: new Fr(0n) });
     await wallet.registerContract(fpc, SponsoredFPCContract.artifact);
-    const node = createAztecNodeClient(NODE_URL);
+    const node = tolerantNode(NODE_URL);
 
     // Self-custody wallet: each browser holds its OWN account key in localStorage.
     // No shared/"house" secret is ever embedded in the app — that would be a
@@ -124,10 +150,10 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
     // Register the already-deployed AZNS instance with this PXE so we can both
     // read AND send to it (a fresh PXE doesn't know contracts it didn't deploy).
     try {
-      const inst = await node.getContract(AztecAddress.fromString(known));
+      const inst = await node.getContract(AztecAddress.fromStringUnsafe(known));
       if (inst) await wallet.registerContract(inst, AZNSContract.artifact);
     } catch { /* may already be registered, or sim-only works */ }
-    const azns = await AZNSContract.at(AztecAddress.fromString(known), wallet);
+    const azns = await AZNSContract.at(AztecAddress.fromStringUnsafe(known), wallet);
 
     // Register the payment-token INSTANCE too (a fresh PXE only knows contracts
     // it deployed), so private balance reads AND the fee-charge simulation can
@@ -139,7 +165,7 @@ export async function connect(log: (m: string) => void = () => {}): Promise<Conn
         : toAddr((await azns.methods.payment_token().simulate({ from: account })).result).toString();
       if (payTok && !toAddr(payTok).isZero()) {
         const { TokenContract } = await import('@aztec/noir-contracts.js/Token');
-        const tinst = await node.getContract(AztecAddress.fromString(payTok));
+        const tinst = await node.getContract(AztecAddress.fromStringUnsafe(payTok));
         if (tinst) await wallet.registerContract(tinst, TokenContract.artifact);
       }
     } catch { /* token not configured, already registered, or older registry */ }
@@ -227,6 +253,10 @@ async function ensureWritable(onStep: (m: string) => void = () => {}): Promise<v
     if (!/already|deployed|exist/i.test(e?.message ?? '')) throw e;
   }
   lsSet(LS.accountDeployed, '1');
+  // Now that the account exists on-chain, publish its discovery key in the
+  // background so incoming payments can find us (never blocks the caller; the
+  // payment watcher retries it if this attempt loses to a testnet hiccup).
+  ensureBeaconKey().catch(() => { /* retried from the watcher */ });
 }
 
 /** Search a label for availability. Read-only, fast. */
@@ -285,7 +315,6 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
 // CONTRACT - a redeploy (new address, fresh state) must never show names from
 // an old deployment. On-chain lease_status/owner_of/mode_of/expiry_of are the
 // source of truth; searching a name you own re-adds it to the list automatically.
-const REGISTRY_TAG = (process.env.AZNS_ADDRESS || 'local').toLowerCase().slice(0, 14);
 const LS_NAMES = `azns.mynames.${REGISTRY_TAG}`;
 export type MyName = { label: string; mode: ModeName; registeredAt?: number; years?: number };
 
@@ -376,7 +405,7 @@ export async function resolvePublic(raw: string): Promise<string> {
 function parseAddress(input: string, what = 'address'): AztecAddress {
   const v = input.trim();
   if (!/^0x[0-9a-fA-F]{1,64}$/.test(v)) throw new Error(`That doesn't look like a valid Aztec ${what} (expected 0x… hex).`);
-  try { return AztecAddress.fromString(v); }
+  try { return AztecAddress.fromStringUnsafe(v); }
   catch { throw new Error(`That ${what} isn't a valid Aztec address.`); }
 }
 
@@ -516,12 +545,12 @@ async function tokenAt(addr: string) {
     registeredTokens.add(addr);
     await withPxe(async () => {
       try {
-        const inst = await conn!.node.getContract(AztecAddress.fromString(addr));
+        const inst = await conn!.node.getContract(AztecAddress.fromStringUnsafe(addr));
         if (inst) await conn!.wallet.registerContract(inst, TokenContract.artifact);
       } catch { /* already registered or unavailable */ }
     });
   }
-  return TokenContract.at(AztecAddress.fromString(addr), conn!.wallet);
+  return TokenContract.at(AztecAddress.fromStringUnsafe(addr), conn!.wallet);
 }
 
 // Open-mint Faucet binding, registered in the PXE like the token. When a
@@ -534,12 +563,12 @@ async function faucetAt(addr: string) {
     registeredFaucets.add(addr);
     await withPxe(async () => {
       try {
-        const inst = await conn!.node.getContract(AztecAddress.fromString(addr));
+        const inst = await conn!.node.getContract(AztecAddress.fromStringUnsafe(addr));
         if (inst) await conn!.wallet.registerContract(inst, FaucetContract.artifact);
       } catch { /* already registered or unavailable */ }
     });
   }
-  return FaucetContract.at(AztecAddress.fromString(addr), conn!.wallet);
+  return FaucetContract.at(AztecAddress.fromStringUnsafe(addr), conn!.wallet);
 }
 
 /** Faucet: get test tokens for the registry's payment token. Uses the open-mint
@@ -591,8 +620,19 @@ export function startPaymentWatcher(
 ) {
   stopPaymentWatcher();
   let last: bigint | null = null;
+  let beaconKeyAttempted = false;
   const tick = async () => {
     if (txInFlight > 0) return; // never compete with an in-flight proof
+    // Discover payments announced to us (beacon): register any new payers so
+    // the balance read below sees their notes — the increase then surfaces
+    // through the normal "payment received" path.
+    try {
+      await scanBeaconPayments();
+      if (!beaconKeyAttempted && lsGet(LS.accountDeployed)) {
+        beaconKeyAttempted = true; // one shot per session; reset on failure
+        ensureBeaconKey().catch(() => { beaconKeyAttempted = false; });
+      }
+    } catch { /* node hiccup — beacon scan resumes next tick */ }
     try {
       const bal = await tokenBalance();
       if (bal === null) return;
@@ -638,6 +678,10 @@ export async function payPrivately(raw: string, amount: bigint, onStep: (m: stri
   onStep('Sending a private transfer…');
   const token = await tokenAt(addr);
   await send(token.methods.transfer(dest.to, amount)); // PRIVATE transfer only
+  // Make it discoverable: announce under the recipient's beacon tag (no-op if
+  // they never published a key). The payment itself is already final — an
+  // announce failure must never surface as a payment failure.
+  try { await announcePayment(dest.to, onStep); } catch { /* recipient can still revealFrom */ }
   onStep('Paid privately.');
 }
 
@@ -683,3 +727,170 @@ export async function hardReset(): Promise<void> {
   } catch { /* best effort */ }
   globalThis.location?.reload();
 }
+
+/** Send a PRIVATE transfer of the registry's payment token straight to a raw
+ *  address (no name resolution) — the same private path payPrivately uses, for
+ *  moving test tokens between accounts. Returns the recipient + amount sent. */
+export async function payToAddress(addressStr: string, amount: bigint, onStep: (m: string) => void = () => {}) {
+  if (amount <= 0n) throw new Error('Enter an amount greater than zero.');
+  await connect(); await ensureWritable(onStep);
+  const to = parseAddress(addressStr, 'recipient');
+  const addr = await paymentToken();
+  if (!addr) throw new Error('No token configured for this registry.');
+  const bal = (await tokenBalance()) ?? 0n;
+  if (bal < amount) throw new Error(`Balance (${bal}) is less than the amount you tried to send (${amount}).`);
+  onStep('Sending a private transfer…');
+  const token = await tokenAt(addr);
+  await sendRetry(() => token.methods.transfer(to, amount)); // PRIVATE transfer only
+  try { await announcePayment(to, onStep); } catch { /* recipient can still revealFrom */ }
+  onStep('Sent.');
+  return { to: to.toString(), amount: amount.toString() };
+}
+
+/** Reveal incoming private payments from a given sender. In Aztec a wallet only
+ *  discovers notes from senders it has REGISTERED (notes from your own txs
+ *  aside) — so a transfer INTO this account stays invisible until you register
+ *  the payer. This registers them and re-reads the balance (the read triggers a
+ *  PXE sync, which then scans historical logs for that sender's tagged notes).
+ *  Must be run in a wallet that holds THIS account's keys (i.e. the recipient). */
+export async function revealFrom(senderStr: string): Promise<{ account: string; registered: string; balanceTokens: string }> {
+  await connect();
+  const sender = parseAddress(senderStr, 'sender');
+  await withPxe(() => conn!.wallet.registerSender(sender, sender.toString()));
+  const bal = (await tokenBalance()) ?? 0n; // simulate() syncs the PXE first
+  return { account: conn!.account.toString(), registered: sender.toString(), balanceTokens: (bal / (10n ** 18n)).toString() };
+}
+
+// ---- Payment-discovery beacon (Option A) --------------------------------------
+// Solves "the recipient must know the sender to see a payment": the payer
+// ANNOUNCES each payment on the Beacon contract under a tag derived from the
+// RECIPIENT's published beacon key; the recipient scans its own tag straight
+// on the node (no PXE, no sender knowledge, no off-chain channel), decrypts
+// the payer, registers it as a sender, and the payment note appears. The
+// payload is ECDH-encrypted to the beacon key, so an observer who derives the
+// (public) tag learns only THAT a payment arrived — never from whom nor how
+// much. Transport proven live on testnet by scripts/beacon_a_e2e.ts.
+const BEACON_ADDRESS = (process.env.BEACON_ADDRESS && process.env.BEACON_ADDRESS.length > 0) ? process.env.BEACON_ADDRESS : '';
+const BEACON_DOMAIN = 0x747275n; // "tru" — domain-separates every beacon hash
+const LS_BEACON_KEY = `azns.beacon.key.${REGISTRY_TAG}`;
+const LS_BEACON_SEEN = `azns.beacon.seen.${REGISTRY_TAG}`;
+
+async function grumpkinLib() {
+  const { Grumpkin } = await import('@aztec/foundation/crypto/grumpkin');
+  const { GrumpkinScalar, Point } = await import('@aztec/foundation/curves/grumpkin');
+  return { Grumpkin, GrumpkinScalar, Point };
+}
+/** This account's beacon keypair, derived from the wallet secret — it follows
+ *  the account to any browser; there is nothing extra to back up. */
+async function beaconKeys() {
+  const { Grumpkin, GrumpkinScalar } = await grumpkinLib();
+  const secret = lsGet(LS.secret);
+  if (!secret) throw new Error('connect first');
+  const seed = await poseidon2Hash([Fr.fromString(secret), new Fr(BEACON_DOMAIN)]);
+  const priv = GrumpkinScalar.fromString(seed.toString());
+  const pub = await Grumpkin.mul(Grumpkin.generator, priv);
+  return { priv, pub };
+}
+const registeredBeacons = new Set<string>();
+async function beaconAt(addr: string) {
+  const { BeaconContract } = await import('./contracts/Beacon');
+  if (!registeredBeacons.has(addr)) {
+    registeredBeacons.add(addr);
+    await withPxe(async () => {
+      try {
+        const inst = await conn!.node.getContract(AztecAddress.fromStringUnsafe(addr));
+        if (inst) await conn!.wallet.registerContract(inst, BeaconContract.artifact);
+      } catch { /* already registered or unavailable */ }
+    });
+  }
+  return BeaconContract.at(AztecAddress.fromStringUnsafe(addr), conn!.wallet);
+}
+// One well-known tag per beacon key: the node returns EVERY log under a tag,
+// so payers need no index coordination (rotation is a later perf/privacy step).
+const beaconTag = async (kx: Fr, ky: Fr) =>
+  poseidon2Hash([await poseidon2Hash([kx, ky, new Fr(BEACON_DOMAIN)]), new Fr(0)]);
+
+/** Publish this account's beacon key (one-time) so payments to it become
+ *  auto-discoverable. Quietly does nothing until the account is deployed. */
+export async function ensureBeaconKey(onStep: (m: string) => void = () => {}): Promise<boolean> {
+  if (!BEACON_ADDRESS) return false;
+  await connect();
+  if (lsGet(LS_BEACON_KEY)) return true;
+  const beacon = await beaconAt(BEACON_ADDRESS);
+  try {
+    const k: any = await sim(beacon.methods.key_of(conn!.account));
+    if (BigInt((k?.x?.toString?.() ?? k?.x) || 0) !== 0n) { lsSet(LS_BEACON_KEY, '1'); return true; }
+  } catch { /* unreadable — try to register below */ }
+  if (!lsGet(LS.accountDeployed)) return false; // a key without an account helps nobody
+  const { pub } = await beaconKeys();
+  onStep('Publishing your discovery key (one-time)…');
+  await sendRetry(() => beacon.methods.register_key(pub.x, pub.y));
+  lsSet(LS_BEACON_KEY, '1');
+  return true;
+}
+
+/** Announce a payment under the RECIPIENT's beacon tag so they discover it
+ *  without knowing us. No-op when they have no published key. */
+async function announcePayment(recipient: AztecAddress, onStep: (m: string) => void = () => {}): Promise<boolean> {
+  if (!BEACON_ADDRESS) return false;
+  const beacon = await beaconAt(BEACON_ADDRESS);
+  const k: any = await sim(beacon.methods.key_of(recipient));
+  const kx = BigInt((k?.x?.toString?.() ?? k?.x) || 0);
+  const ky = BigInt((k?.y?.toString?.() ?? k?.y) || 0);
+  if (kx === 0n) return false; // recipient not discoverable (no key published)
+  onStep('Announcing the payment for auto-discovery…');
+  const { Grumpkin, GrumpkinScalar, Point } = await grumpkinLib();
+  const K = new Point(new Fr(kx), new Fr(ky));
+  const e = GrumpkinScalar.random();
+  const E = await Grumpkin.mul(Grumpkin.generator, e); // goes in the payload
+  const S = await Grumpkin.mul(K, e);                  // ECDH shared secret
+  const mask = await poseidon2Hash([S.x, S.y, new Fr(BEACON_DOMAIN)]);
+  const ct = new Fr((conn!.account.toBigInt() + mask.toBigInt()) % Fr.MODULUS);
+  const tag = await beaconTag(new Fr(kx), new Fr(ky));
+  await sendRetry(() => beacon.methods.announce(tag, E.x, E.y, ct));
+  return true;
+}
+
+/** Scan the node for payments announced to US; register each decrypted payer
+ *  as a sender so their notes appear. Returns how many new payers surfaced. */
+export async function scanBeaconPayments(): Promise<number> {
+  if (!BEACON_ADDRESS) return 0;
+  await connect();
+  const { priv, pub } = await beaconKeys();
+  const { Tag, SiloedTag } = await import('@aztec/stdlib/logs');
+  const raw = await beaconTag(pub.x, pub.y);
+  const siloed = await SiloedTag.computeFromTagAndApp(new Tag(raw), AztecAddress.fromStringUnsafe(BEACON_ADDRESS));
+  const res: any[][] = await conn!.node.getPrivateLogsByTags({ tags: [siloed] });
+  const logs: any[] = res?.[0] ?? [];
+  if (logs.length === 0) return 0;
+  const seen = new Set<string>(JSON.parse(lsGet(LS_BEACON_SEEN) || '[]'));
+  const { Grumpkin, Point } = await grumpkinLib();
+  let found = 0;
+  for (const log of logs) {
+    const f: any[] = log?.logData ?? [];
+    const id = `${log?.txHash ?? ''}:${log?.logIndexWithinTx ?? ''}`;
+    if (seen.has(id) || f.length < 4) continue;
+    seen.add(id); // one attempt per log — a malformed log stays ignored
+    try {
+      // logData: [tag, E.x, E.y, ct]
+      const E = new Point(Fr.fromString(f[1].toString()), Fr.fromString(f[2].toString()));
+      const S = await Grumpkin.mul(E, priv);
+      const mask = await poseidon2Hash([S.x, S.y, new Fr(BEACON_DOMAIN)]);
+      const payerB = ((BigInt(f[3].toString()) - mask.toBigInt()) % Fr.MODULUS + Fr.MODULUS) % Fr.MODULUS;
+      const payer = AztecAddress.fromFieldUnsafe(new Fr(payerB));
+      if (payer.isZero() || payer.equals(conn!.account)) continue;
+      await withPxe(() => conn!.wallet.registerSender(payer, payer.toString()));
+      found++;
+    } catch { /* not ours / malformed — skip */ }
+  }
+  lsSet(LS_BEACON_SEEN, JSON.stringify([...seen]));
+  return found;
+}
+
+// Console-only debug hook (testnet preview): trigger a raw-address transfer or
+// reveal an incoming payment from devtools for manual testing. NOT in the UI.
+try {
+  if (typeof window !== 'undefined') {
+    (window as any).aznsDbg = { payToAddress, revealFrom, paymentToken, tokenBalance, accountAddress, ensureBeaconKey, scanBeaconPayments };
+  }
+} catch { /* no window */ }

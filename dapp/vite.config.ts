@@ -28,6 +28,29 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       nodePolyfills({ include: ['buffer', 'path', 'process', 'util', 'stream', 'events'] }),
+      {
+        // COOP/COEP on EVERY dev response, including vite-internal paths like
+        // /node_modules/.vite/deps/worker.js?worker_file: under cross-origin
+        // isolation a module worker's own response must carry COEP too, and
+        // `server.headers` does not reach those — without this the kv-store
+        // SQLite-OPFS worker is blocked (ERR_BLOCKED_BY_RESPONSE) and the PXE
+        // dies with "SQLite worker crashed".
+        name: 'cross-origin-isolation-everywhere',
+        configureServer(server: any) {
+          server.middlewares.use((_req: any, res: any, next: any) => {
+            res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+            res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+            next();
+          });
+        },
+        configurePreviewServer(server: any) {
+          server.middlewares.use((_req: any, res: any, next: any) => {
+            res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+            res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+            next();
+          });
+        },
+      },
     ],
     define: {
       // Expose selected env vars to the browser bundle.
@@ -35,16 +58,21 @@ export default defineConfig(({ mode }) => {
       'process.env.AZNS_ADDRESS': JSON.stringify(env.AZNS_ADDRESS ?? ''),
       'process.env.PAY_TOKEN_ADDRESS': JSON.stringify(env.PAY_TOKEN_ADDRESS ?? ''),
       'process.env.FAUCET_ADDRESS': JSON.stringify(env.FAUCET_ADDRESS ?? ''),
+      'process.env.BEACON_ADDRESS': JSON.stringify(env.BEACON_ADDRESS ?? ''),
       // bb.js loads its WASM from this path; the -threads variant is inferred.
       // We copy the file into public/assets via sync.mjs.
       'process.env.BB_WASM_PATH': JSON.stringify('/assets/barretenberg.wasm.gz'),
     },
     optimizeDeps: {
-      // Don't let esbuild pre-bundle the WASM-bearing packages: prebundling
-      // breaks their `new URL(..., import.meta.url)` asset resolution, which
-      // makes .wasm requests fall through to index.html. Excluded => Vite
-      // serves their colocated *_bg.wasm from node_modules directly.
-      exclude: ['@aztec/bb.js', '@aztec/noir-acvm_js', '@aztec/noir-noirc_abi'],
+      // Don't let esbuild pre-bundle the WASM/worker-bearing packages:
+      // prebundling breaks `new URL(..., import.meta.url)` asset resolution
+      // (wasm requests fall through to index.html), and the dep optimizer
+      // fails to emit kv-store's SQLite worker at all when that worker
+      // imports the excluded sqlite3mc-wasm (dangling .vite/deps/worker.js
+      // 404 -> "SQLite worker crashed"). Excluding BOTH serves the real files
+      // from node_modules; the first dev load streams a large raw module
+      // graph (slow once, then cached).
+      exclude: ['@aztec/bb.js', '@aztec/noir-acvm_js', '@aztec/noir-noirc_abi', '@aztec/kv-store', '@aztec/sqlite3mc-wasm'],
       esbuildOptions: { target: 'esnext' },
     },
     build: { target: 'esnext' },
