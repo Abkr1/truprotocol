@@ -22,7 +22,7 @@ amount ever appears on-chain.
 > payment → autonomous payment discovery. One **external security review** has
 > been completed and **all 5 findings fixed + verified** (19 TXE tests + a live
 > fee/hash cross-check) — see [Safety](#safety). Live registry (testnet):
-> `0x2fc1d36626162434ee4f75ac94ad581f51444366d9aec1cce35f595d5f7f6b4c`.
+> `0x2642636e7b6c199b7617d6ea987fe2de3775ec0c98f646dc3b0b4c223f2aa08a`.
 > **Still testnet-only; a full audit remains a hard gate before mainnet.**
 
 ---
