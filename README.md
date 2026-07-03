@@ -19,7 +19,11 @@ amount ever appears on-chain.
 > **Status:** built on aztec **`5.0.0-nightly.20260701`** (the AZUP-2 / v5
 > protocol line), deployed to the public v5 testnet, and exercised end-to-end
 > **in a real browser**: self-serve tokens → paid registration → private
-> payment → autonomous payment discovery. **Unaudited — testnet only.**
+> payment → autonomous payment discovery. One **external security review** has
+> been completed and **all 5 findings fixed + verified** (19 TXE tests + a live
+> fee/hash cross-check) — see [Safety](#safety). Live registry (testnet):
+> `0x2fc1d36626162434ee4f75ac94ad581f51444366d9aec1cce35f595d5f7f6b4c`.
+> **Still testnet-only; a full audit remains a hard gate before mainnet.**
 
 ---
 
