@@ -42,22 +42,15 @@ export function labelLength(raw: string): number {
 }
 
 export async function nameHash(raw: string): Promise<Fr> {
-  const norm = normaliseName(raw);
+  // name_hash = poseidon2([packed_label, label_len]). The CONTRACT recomputes
+  // this exact hash on-chain in register() and rejects a mismatch, so the
+  // length policy is enforced trustlessly (you can't claim a fake length):
+  // this MUST stay identical to the Noir `poseidon2_hash([label, label_len])`.
+  // packLabel packs the label-only bytes (<=31) big-endian into one field and
+  // throws for longer labels (the contract's practical bound).
+  const packed = packLabel(raw);
   const len = labelLength(raw);
-  // Encode UTF-8 bytes into field-sized chunks, then poseidon-hash WITH length.
-  const bytes = new TextEncoder().encode(norm);
-  const chunks: bigint[] = [];
-  for (let i = 0; i < bytes.length; i += 31) {
-    const slice = bytes.slice(i, i + 31);
-    let acc = 0n;
-    for (const b of slice) acc = (acc << 8n) + BigInt(b);
-    chunks.push(acc);
-  }
-  if (chunks.length === 0) chunks.push(0n);
-  // Append length as a final field so the hash commits to it.
-  chunks.push(BigInt(len));
-  const hashed = await poseidon2Hash(chunks.map((c) => new Fr(c)));
-  return hashed;
+  return poseidon2Hash([new Fr(packed), new Fr(BigInt(len))]);
 }
 
 export const MODE = {

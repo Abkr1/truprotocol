@@ -790,6 +790,12 @@ export function stopPaymentWatcher() {
 export async function payTarget(raw: string): Promise<{ to: AztecAddress; kind: 'public' | 'stealth' } | null> {
   await connect();
   const nh = await nameHash(raw);
+  // Never resolve-for-pay a name whose lease has lapsed (status 0 = available
+  // or past grace): the fixed contract already zeroes stale resolutions, but
+  // guard client-side too so an older/other registry can't misdirect a payment
+  // to a previous owner (audit #1). Active (1) and grace (2) still pay.
+  const status = Number(await sim(conn!.azns.methods.lease_status(nh)));
+  if (status === 0) return null;
   const pub = toAddr(await sim(conn!.azns.methods.resolve_public(nh)));
   if (!pub.isZero()) return { to: pub, kind: 'public' };
   const key: any = await sim(conn!.azns.methods.resolve_stealth(nh));

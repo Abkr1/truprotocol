@@ -68,6 +68,16 @@ pub contract Beacon {
     /// Emit a private log under a caller-chosen (recipient-derivable) tag.
     /// Payload: ephemeral ECDH point (e_x, e_y) + the pad-encrypted payer.
     /// Private function: the tx reveals nothing about the caller.
+    ///
+    /// SPAM SURFACE (audit #4, accepted trade-off): the tag is caller-chosen and
+    /// a recipient's tag is derivable from their PUBLIC beacon key, so anyone can
+    /// emit junk logs under a victim's tag. The victim's watcher fetches them and
+    /// ECDH-fails to decrypt each (junk is discarded, and its `seen`-set means
+    /// each log is processed at most once) - so it costs the spammer a tx/gas per
+    /// junk log for only bounded extra client work, and payloads stay unforgeable
+    /// (no valid `ct` without the payment). This is inherent to public-derivable
+    /// tags; mitigations if it ever bites: a fee/PoW on announce, a per-tag cap,
+    /// or watcher-side decrypt-fail backoff.
     #[external("private")]
     fn announce(tag: Field, e_x: Field, e_y: Field, ct: Field) {
         let mut log: BoundedVec<Field, PRIVATE_LOG_CIPHERTEXT_LEN> = BoundedVec::new();

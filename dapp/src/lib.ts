@@ -20,19 +20,13 @@ export function labelLength(raw: string): number {
 
 /** Deterministic length-bound Poseidon hash of a normalised name. */
 export async function nameHash(raw: string): Promise<Fr> {
-  const norm = normaliseName(raw);
+  // name_hash = poseidon2([packed_label, label_len]) — the CONTRACT recomputes
+  // this on-chain in register() and rejects a mismatch, enforcing the length
+  // policy trustlessly (audit #2). MUST match Noir poseidon2_hash([label,len])
+  // and scripts/lib.ts. packLabel throws for labels >31 bytes.
+  const packed = packLabel(raw);
   const len = labelLength(raw);
-  const bytes = new TextEncoder().encode(norm);
-  const chunks: bigint[] = [];
-  for (let i = 0; i < bytes.length; i += 31) {
-    const slice = bytes.slice(i, i + 31);
-    let acc = 0n;
-    for (const b of slice) acc = (acc << 8n) + BigInt(b);
-    chunks.push(acc);
-  }
-  if (chunks.length === 0) chunks.push(0n);
-  chunks.push(BigInt(len));
-  return await poseidon2Hash(chunks.map((c) => new Fr(c)));
+  return await poseidon2Hash([new Fr(packed), new Fr(BigInt(len))]);
 }
 
 export const MODE = { PUBLIC: 0, SELECTIVE: 1, STEALTH: 2 } as const;

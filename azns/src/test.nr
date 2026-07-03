@@ -24,10 +24,19 @@
 //   env.call_private / call_public / view_public with AZNS::at(addr).method(..).
 
 use aztec::protocol::address::AztecAddress;
+use aztec::protocol::hash::poseidon2_hash;
 use aztec::test::helpers::authwit::add_private_authwit_from_call;
 use aztec::test::helpers::test_environment::TestEnvironment;
 use token::Token;
 use crate::AZNS;
+
+// The registry now binds name_hash to (label, label_len) on-chain (audit #2),
+// so a valid registration must submit name_hash = poseidon2([label, len]).
+// Mirrors lib.ts nameHash. Tests that expect a revert BEFORE the hash check
+// (owner/length/duration/mode guards) keep passing a bogus hash on purpose.
+fn nh(label: Field, label_len: u32) -> Field {
+    poseidon2_hash([label, label_len as Field])
+}
 
 // Flat per-year fee in USD cents (mirrors PRICE_*_CENTS in main.nr). setup()
 // deploys AZNS with unit_per_cent = 1, so the token amount equals the cents
@@ -102,7 +111,7 @@ unconstrained fn register_paid(
 #[test]
 unconstrained fn unregistered_name_resolves_to_zero() {
     let (env, azns, _token, _treasury) = setup();
-    let name = 999;
+    let name = nh(0, 5);
 
     let resolved = env.view_public(AZNS::at(azns).resolve_public(name));
     assert(resolved.is_zero(), "unregistered name must resolve to zero");
@@ -135,7 +144,7 @@ unconstrained fn epoch_starts_at_zero() {
 unconstrained fn anyone_can_register() {
     let (mut env, azns, token, treasury) = setup();
     let alice = env.create_contract_account();
-    let name = 999;
+    let name = nh(0, 5);
 
     // 5-letter label, 1-year lease, MODE_PUBLIC, owner = alice.
     env = register_paid(env, token, azns, treasury, alice, name, 0, 5, 1, 0);
@@ -161,7 +170,7 @@ unconstrained fn label_backup_roundtrip() {
     let (mut env, azns, token, treasury) = setup();
     let alice = env.create_contract_account();
     let label = 0x7465737473; // "tests" packed big-endian
-    env = register_paid(env, token, azns, treasury, alice, 999, label, 5, 1, 0);
+    env = register_paid(env, token, azns, treasury, alice, nh(label, 5), label, 5, 1, 0);
     let labels = env.call_private(alice, AZNS::at(azns).my_labels());
     assert(labels[0] == label, "label note must round-trip via my_labels");
 }
@@ -184,7 +193,7 @@ unconstrained fn active_name_cannot_be_taken() {
     let (mut env, azns, token, treasury) = setup();
     let alice = env.create_contract_account();
     let bob = env.create_contract_account();
-    let name = 999;
+    let name = nh(0, 5);
     env = register_paid(env, token, azns, treasury, alice, name, 0, 5, 1, 0);
     env = register_paid(env, token, azns, treasury, bob, name, 0, 5, 1, 0);
 }
@@ -195,7 +204,7 @@ unconstrained fn owner_can_repoint() {
     let (mut env, azns, token, treasury) = setup();
     let alice = env.create_contract_account();
     let bob = env.create_contract_account();
-    let name = 999;
+    let name = nh(0, 5);
     env = register_paid(env, token, azns, treasury, alice, name, 0, 5, 1, 0);
     env.call_public(alice, AZNS::at(azns).set_public_target(name, bob));
     let resolved = env.view_public(AZNS::at(azns).resolve_public(name));
@@ -208,7 +217,7 @@ unconstrained fn non_owner_cannot_repoint() {
     let (mut env, azns, token, treasury) = setup();
     let alice = env.create_contract_account();
     let bob = env.create_contract_account();
-    let name = 999;
+    let name = nh(0, 5);
     env = register_paid(env, token, azns, treasury, alice, name, 0, 5, 1, 0);
     env.call_public(bob, AZNS::at(azns).set_public_target(name, bob));
 }
@@ -248,6 +257,18 @@ unconstrained fn register_rejects_invalid_mode() {
     env.call_private(alice, AZNS::at(azns).register(999, 0, 5, alice, 1, 7));
 }
 
+// Audit #2: name_hash is bound to (label, label_len) on-chain. Submitting a
+// hash that doesn't match the claimed label+length reverts - so you can't, e.g.,
+// register the reserved 1-char name's hash while declaring label_len=3. Reverts
+// at the binding check, before any fee is charged.
+#[test(should_fail_with = "name_hash does not match label and length")]
+unconstrained fn register_rejects_mismatched_hash() {
+    let (mut env, azns, _token, _treasury) = setup();
+    let alice = env.create_contract_account();
+    // Hash is for (label=7, len=5); we pass label=0 -> binding mismatch.
+    env.call_private(alice, AZNS::at(azns).register(nh(7, 5), 0, 5, alice, 1, 0));
+}
+
 // ---- renewal guards ---------------------------------------------------------
 
 // Renewing charges the fee first, then extends. An unregistered name must fail
@@ -270,9 +291,72 @@ unconstrained fn renew_unregistered_name_fails() {
 unconstrained fn renew_rejects_wrong_mode() {
     let (mut env, azns, token, treasury) = setup();
     let alice = env.create_contract_account();
-    let name = 999;
+    let name = nh(0, 5);
     env = register_paid(env, token, azns, treasury, alice, name, 0, 5, 1, 2);
     let amount = FEE_CENTS_PER_YEAR * 2;
     env = fund_and_authorize(env, token, azns, treasury, alice, amount);
     env.call_private(alice, AZNS::at(azns).renew(name, 0, 2));
+}
+
+// ---- audit #1 + #3: lease-gated resolution + grace-renewal ownership --------
+
+// Audit #1: once a name lapses PAST its grace period it must resolve to zero,
+// not the stale previous owner (a payer would otherwise misdirect funds).
+#[test]
+unconstrained fn expired_name_resolves_to_zero() {
+    let (mut env, azns, token, treasury) = setup();
+    let alice = env.create_contract_account();
+    let name = nh(0, 5);
+    env = register_paid(env, token, azns, treasury, alice, name, 0, 5, 1, 0);
+    let live = env.view_public(AZNS::at(azns).resolve_public(name));
+    assert(live.eq(alice), "active public name resolves to its owner");
+
+    // Advance past expiry (1yr) + grace (90d) + slack.
+    env.advance_next_block_timestamp_by(31_536_000 + 7_776_000 + 100);
+    env.mine_block();
+
+    let stale = env.view_public(AZNS::at(azns).resolve_public(name));
+    assert(stale.is_zero(), "past-grace name must resolve to zero, not the stale owner");
+    let status = env.view_public(AZNS::at(azns).lease_status(name));
+    assert(status == 0, "past-grace name must read as available");
+}
+
+// Audit #3: during GRACE, only the prior owner may renew - a third party can't
+// gift-renew to keep a lapsed name bound to its abandoned owner.
+#[test(should_fail_with = "only the owner may renew during grace")]
+unconstrained fn grace_renewal_is_owner_only() {
+    let (mut env, azns, token, treasury) = setup();
+    let alice = env.create_contract_account();
+    let bob = env.create_contract_account();
+    let name = nh(0, 5);
+    env = register_paid(env, token, azns, treasury, alice, name, 0, 5, 1, 0);
+
+    // Enter grace: just past the 1-year expiry, still within the 90-day window.
+    env.advance_next_block_timestamp_by(31_536_000 + 100);
+    env.mine_block();
+
+    // Bob (not the owner) pays + authorizes, but the grace check rejects him.
+    let amount = FEE_CENTS_PER_YEAR * 1;
+    env = fund_and_authorize(env, token, azns, treasury, bob, amount);
+    env.call_private(bob, AZNS::at(azns).renew(name, 0, 1));
+}
+
+// ...while the owner still can renew during grace (restores it to active).
+#[test]
+unconstrained fn owner_can_renew_during_grace() {
+    let (mut env, azns, token, treasury) = setup();
+    let alice = env.create_contract_account();
+    let name = nh(0, 5);
+    env = register_paid(env, token, azns, treasury, alice, name, 0, 5, 1, 0);
+    env.advance_next_block_timestamp_by(31_536_000 + 100);
+    env.mine_block();
+
+    // Renew for 2 years, a DISTINCT fee amount from the 1-year registration, so
+    // its authwit doesn't collide with the already-spent registration authwit
+    // (same from/to/amount/nonce would reuse a spent nullifier).
+    let amount = FEE_CENTS_PER_YEAR * 2;
+    env = fund_and_authorize(env, token, azns, treasury, alice, amount);
+    env.call_private(alice, AZNS::at(azns).renew(name, 0, 2));
+    let status = env.view_public(AZNS::at(azns).lease_status(name));
+    assert(status == 1, "owner renewal during grace restores the name to active");
 }

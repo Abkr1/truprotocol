@@ -30,7 +30,7 @@ pub contract AZNS {
         },
         messages::delivery::MessageDelivery,
         note::{note_getter_options::NoteGetterOptions, note_interface::NoteProperties},
-        protocol::{address::AztecAddress, traits::{ToField, Serialize, Deserialize, Packable}},
+        protocol::{address::AztecAddress, hash::poseidon2_hash, traits::{ToField, Serialize, Deserialize, Packable}},
         state_vars::{Map, Owned, PrivateSet, PublicImmutable, PublicMutable},
         utils::comparison::Comparator,
     };
@@ -153,6 +153,9 @@ pub contract AZNS {
     #[external("public")]
     #[initializer]
     fn constructor(payment_token: AztecAddress, treasury: AztecAddress, unit_per_cent: u128) {
+        // Guard against a fee-disabling mis-deploy: unit_per_cent == 0 makes
+        // every fee_amount 0, i.e. free registration/renewal.
+        assert(unit_per_cent != 0, "unit_per_cent must be greater than zero");
         self.storage.payment_token.initialize(payment_token);
         self.storage.treasury.initialize(treasury);
         self.storage.unit_per_cent.initialize(unit_per_cent);
@@ -214,8 +217,18 @@ pub contract AZNS {
         assert(label_len >= MIN_LABEL_LEN, "label too short to register");
         assert(label_len <= MAX_LABEL_LEN, "label too long to register");
         assert(duration_years >= 1, "minimum lease is 1 year");
-        let total_cents = price_for_mode(mode) * duration_years;
+        let total_cents = price_for_mode(mode) * duration_years; // also validates mode
         let duration_secs = duration_years * YEAR_SECS;
+
+        // Bind the name_hash to the claimed (label, label_len) ON-CHAIN, so the
+        // min/max-length policy is trustless: a caller can't take name_hash for
+        // a 1-char name while declaring label_len=3. name_hash MUST equal the
+        // off-chain nameHash = poseidon2([packed_label, label_len]) (lib.ts).
+        // Placed after the guards above so their errors surface first.
+        assert(
+            name_hash == poseidon2_hash([label, label_len as Field]),
+            "name_hash does not match label and length",
+        );
 
         // Charge the fee: pull payment tokens from the buyer into the treasury
         // (private transfer; the buyer pre-authorizes this contract via an
@@ -306,22 +319,23 @@ pub contract AZNS {
     #[external("private")]
     fn renew(name_hash: Field, mode: u8, duration_years: u64) {
         assert(duration_years >= 1, "minimum renewal is 1 year");
+        let renewer = self.msg_sender(); // authenticated; forwarded to the grace check
         let annual_cents = price_for_mode(mode);
         let total_cents = annual_cents * duration_years;
 
         // Charge first (private pull from the renewer), then extend expiry.
         let amount = cents_to_tokens(total_cents, self.storage.unit_per_cent.read());
         Token::at(self.storage.payment_token.read())
-            .transfer_in_private(self.msg_sender(), self.storage.treasury.read(), amount, 0)
+            .transfer_in_private(renewer, self.storage.treasury.read(), amount, 0)
             .call(self.context);
 
         let extra_secs = duration_years * YEAR_SECS;
-        self.enqueue_self._extend_expiry(name_hash, extra_secs, mode);
+        self.enqueue_self._extend_expiry(name_hash, extra_secs, mode, renewer);
     }
 
     #[external("public")]
     #[only_self]
-    fn _extend_expiry(name_hash: Field, extra_secs: u64, claimed_mode: u8) {
+    fn _extend_expiry(name_hash: Field, extra_secs: u64, claimed_mode: u8, renewer: AztecAddress) {
         let current_owner = self.storage.owners.at(name_hash).read();
         assert(!current_owner.is_zero(), "name not registered");
         // The mode the renewer paid for must be the name's actual mode.
@@ -333,6 +347,15 @@ pub contract AZNS {
         // and may be freshly registered by anyone.
         let within_grace = now <= (current_expiry + GRACE_PERIOD_SECS);
         assert(within_grace, "lease lapsed past grace period; must re-register");
+
+        // During GRACE (already expired, still renewable) only the PRIOR OWNER
+        // may renew - otherwise a third party could gift-renew a lapsed name to
+        // keep it bound to its abandoned owner and block re-registration after
+        // grace. A LIVE name may still be gift-renewed by anyone. `renewer` is
+        // the authenticated caller captured in renew(), so it can't be forged.
+        if now > current_expiry {
+            assert(current_owner.eq(renewer), "only the owner may renew during grace");
+        }
 
         // Extend from the later of (now, current_expiry) so renewing early
         // doesn't burn time, and renewing during grace resumes from now.
@@ -373,10 +396,22 @@ pub contract AZNS {
         self.storage.public_target.at(name_hash).write(target);
     }
 
+    // Resolution respects the lease: a name that has lapsed PAST its grace
+    // period resolves to zero/empty, so payers/integrators never send to a
+    // stale target for a name that is now free to register. (Active AND grace
+    // names still resolve - during grace the prior owner still controls it.)
+    // The check is inlined in each resolver (owner non-zero AND now <= expiry
+    // + grace) so no helper-with-context is needed.
     #[external("public")]
     #[view]
     fn resolve_public(name_hash: Field) -> AztecAddress {
-        self.storage.public_target.at(name_hash).read()
+        let owner = self.storage.owners.at(name_hash).read();
+        let exp = self.storage.expiry.at(name_hash).read();
+        if (!owner.is_zero()) & (self.context.timestamp() <= (exp + GRACE_PERIOD_SECS)) {
+            self.storage.public_target.at(name_hash).read()
+        } else {
+            AztecAddress::zero()
+        }
     }
 
     #[external("public")]
@@ -413,7 +448,13 @@ pub contract AZNS {
     #[external("public")]
     #[view]
     fn get_addr(name_hash: Field, coin_type: Field) -> AddrRecord {
-        self.storage.records.at(name_hash).at(coin_type).read()
+        let owner = self.storage.owners.at(name_hash).read();
+        let exp = self.storage.expiry.at(name_hash).read();
+        if (!owner.is_zero()) & (self.context.timestamp() <= (exp + GRACE_PERIOD_SECS)) {
+            self.storage.records.at(name_hash).at(coin_type).read()
+        } else {
+            AddrRecord { hi: 0, lo: 0, len: 0 }
+        }
     }
 
     // ---- STEALTH META-KEY (MODE_STEALTH) -----------------------------------
@@ -431,7 +472,13 @@ pub contract AZNS {
     #[external("public")]
     #[view]
     fn resolve_stealth(name_hash: Field) -> StealthKey {
-        self.storage.stealth.at(name_hash).read()
+        let owner = self.storage.owners.at(name_hash).read();
+        let exp = self.storage.expiry.at(name_hash).read();
+        if (!owner.is_zero()) & (self.context.timestamp() <= (exp + GRACE_PERIOD_SECS)) {
+            self.storage.stealth.at(name_hash).read()
+        } else {
+            StealthKey { spend_x: 0, spend_y: 0, view_x: 0, view_y: 0 }
+        }
     }
 
     // =======================================================================
