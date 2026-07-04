@@ -29,6 +29,10 @@ scripts/.deployer.json
 # local WSL run helpers (env-specific, may contain spent faucet claims)
 run_*.sh
 _*.sh
+# ...except the full redeploy orchestrator: no secrets, worth versioning (it
+# does hardcode this machine's WSL mount path - adjust when running elsewhere).
+# The _1/_2 partial runners stay ignored (they pin stale per-run addresses).
+!run_redeploy_full.sh
 
 # machine-specific dApp helpers + preview launcher
 *_dapp.sh
