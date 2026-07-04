@@ -90,7 +90,7 @@ export default function AzguardButton({ onChanged }: { onChanged?: () => void } 
     return <span className="badge ghosty" role="button" onClick={connect} title={s.message}>Azguard: retry</span>;
   }
   return (
-    <button className="theme-btn" onClick={connect} disabled={s.k === 'connecting'} title="Connect the Azguard external wallet">
+    <button className="ghost wallet-btn" onClick={connect} disabled={s.k === 'connecting'} title="Connect the Azguard external wallet">
       {s.k === 'connecting' ? 'Connecting…' : 'Connect Azguard'}
     </button>
   );

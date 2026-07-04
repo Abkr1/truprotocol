@@ -85,7 +85,7 @@ body {
 [data-theme="dark"] .notice.warn, [data-theme="dark"] .grace { background: #271e08; color: #e8b75c; border-color: #463512; }
 [data-theme="dark"] .tag.taken { background: #1e2622; color: var(--muted); }
 [data-theme="dark"] .pill-no { background: #2a1413; color: #ff9f96; }
-[data-theme="dark"] .toast { background: #eaf4ee; color: #10241a; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+.toast::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(43,182,115,.18), 0 0 12px rgba(43,182,115,.55); }
 [data-theme="dark"] .log { background: #0d130f; }
 
 .wrap { max-width: 760px; margin: 0 auto; padding: 22px 20px 96px; }
@@ -385,12 +385,16 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
 
 /* ---- payment toast + copyables ------------------------------------------ */
 .toast {
-  position: fixed; right: 22px; bottom: 22px; z-index: 50;
-  background: var(--ink); color: #fff; font-size: 14px; font-weight: 600;
-  padding: 12px 18px; border-radius: 14px; box-shadow: 0 10px 30px rgba(16,40,28,.35);
-  animation: toast-in .25s ease;
+  position: fixed; right: 22px; bottom: 24px; z-index: 50;
+  display: flex; align-items: center; gap: 11px;
+  background: linear-gradient(180deg, #16221b, #0f1712);
+  color: var(--ink); border: 1px solid var(--green-100); border-left: 3px solid var(--green);
+  font-size: 14px; font-weight: 600;
+  padding: 13px 18px 13px 15px; border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  animation: toast-in .3s cubic-bezier(.2,.85,.25,1);
 }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
 .copyable { cursor: pointer; }
 .copyable:hover { border-color: var(--green); }
 .badge.copyable:hover { background: var(--green-100); }
@@ -410,3 +414,57 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
   .modes, .features { grid-template-columns: 1fr; }
   .hero h1 { font-size: 36px; }
 }
+
+/* =========================================================================
+   Micro-polish layer (dark-only) — depth, motion, finish. Additive and placed
+   last so it wins the cascade cleanly without disturbing the rules above.
+   ========================================================================= */
+
+/* Global finish: smooth anchors, on-brand selection + scrollbars */
+html { scroll-behavior: smooth; }
+::selection { background: rgba(43, 182, 115, .26); color: var(--ink); }
+* { scrollbar-width: thin; scrollbar-color: #24352b transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #22332a; border: 3px solid transparent; background-clip: content-box; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #2d4437; background-clip: content-box; }
+
+/* Hero: a soft green halo behind the headline + a gradient .tru wordmark */
+.hero { background: radial-gradient(58% 130px at 50% 24px, rgba(43, 182, 115, .13), transparent 70%); }
+.hero .tld {
+  background: linear-gradient(180deg, #56d69d, var(--green));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+/* Cards: faint top sheen + a subtly lit surface (the premium-dark trick) */
+[data-theme="dark"] .card,
+[data-theme="dark"] .result-card,
+[data-theme="dark"] .feature,
+[data-theme="dark"] .how-card {
+  background: linear-gradient(180deg, #131c16 0%, var(--card) 44%);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .045);
+}
+
+/* Feature + story cards lift on hover */
+.feature, .how-card { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.feature:hover, .how-card:hover {
+  transform: translateY(-2px); border-color: var(--green-100);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .07);
+}
+
+/* Tactile micro-interactions on the small chips/badges */
+.badge, .tag, .mode-chip, .pip, .mode { transition: background .15s, border-color .15s, color .15s, transform .12s ease; }
+.badge.copyable:active { transform: scale(.97); }
+
+/* Search: give the primary action a little more presence + a warmer focus */
+[data-theme="dark"] .search { box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .04); }
+.search:focus-within { box-shadow: 0 0 0 4px rgba(43, 182, 115, .16), 0 14px 40px rgba(0, 0, 0, .4); }
+
+/* Active tab reads as pressed */
+.tabs button.on { box-shadow: inset 0 0 0 1px var(--green-100); }
+
+/* Compact external-wallet connect button (was mis-sized as a 34px icon square) */
+.wallet-btn { padding: 6px 13px; font-size: 12.5px; }
+
+/* Register CTA: a touch more on-brand lift */
+.cta { box-shadow: 0 1px 2px rgba(24, 137, 84, .5), 0 10px 26px rgba(43, 182, 115, .3); }
+.cta:not(:disabled):hover { box-shadow: 0 2px 4px rgba(24, 137, 84, .55), 0 14px 34px rgba(43, 182, 115, .4); }
