@@ -43,3 +43,6 @@ dapp/.env
 
 # beacon build artifacts (compiled like azns/faucet targets)
 beacon/target/
+
+# stealth feasibility spike build artifacts (source is versioned, target isn't)
+stealth_spike/target/
