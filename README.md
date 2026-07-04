@@ -10,7 +10,7 @@ per name:
 |------|--------------------------------------------|
 | `PUBLIC` (0) | Anyone (ENS-equivalent). Resolves to its **owner by default** the moment it's registered (no set-address step; repoint anytime). Supports multichain address records (Ethereum/Bitcoin/Solana/… via SLIP-0044 coin types). |
 | `SELECTIVE` (1) | Only parties the owner explicitly grants — and each can be shown a *different* target. |
-| `STEALTH` (2) | The name publicly resolves to a stealth meta-key; anyone can pay, each payment lands on a fresh, unlinkable one-time address. The dApp auto-publishes the meta-key at registration. |
+| `STEALTH` (2) | The name publishes a stealth meta-key and sets **no public address pointer**; anyone can pay it and payments arrive privately (auto-discovered via the beacon), routed to the owner's account. **Per-payment unlinkable one-time addresses are scoped R&D, not yet live** — Aztec's hashed key derivation blocks the naive scheme; see [docs/stealth-mode.md](docs/stealth-mode.md). |
 
 The chain only ever stores a **hash** of the label, never the cleartext name.
 In every mode, payments themselves are private — no sender, recipient, or

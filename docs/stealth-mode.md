@@ -143,9 +143,27 @@ fn resolve_stealth(name_hash: Field) -> StealthKey {
 - ✅ **Stealth crypto prototype validated** — `npm run stealth:demo` (`scripts/stealth_demo.ts`)
   proves the full loop on Grumpkin: derive one-time `P` from `(S,V)`, recover one-time spend
   key `p`, confirm `p·G == P`, and that two payments land on different unlinkable addresses.
-- ⏳ **Remaining (wallet integration):** per-payment `P` derivation in the send flow, an
-  announcement/scan so the recipient finds payments, and spending the one-time notes (sweep).
-  The crypto is proven; the work left is the Aztec note/account integration.
+- ⛔ **Blocked on standard Aztec accounts (found 2026-07-04) — this is an architectural wall,
+  not "integration."** The scheme needs a sender to compute the recipient's Aztec address from
+  public data alone (`S, V, R`). But Aztec derives every account key from its secret through a
+  **hash-based KDF** (`deriveMasterIncomingViewingSecretKey`, `…Nullifier…`, `deriveSigningKey`,
+  etc. — see `@aztec/stdlib/keys/derivation`), not a linear map. So the incoming-viewing pubkey
+  is `ivpk = KDF(p)·G`, which is **not** computable from `P = p·G` — the additive homomorphism
+  stealth relies on (`P = S + h·G`, recipient secret `s + h`) is destroyed by the hash. Aztec
+  also ships **no native stealth** support. The *only* viable path is a **custom account
+  contract with KDF-free (linear) keys** (`ivpk = P` directly, nullifier/signing keys
+  sender-derivable), plus custom note delivery + a sweep, and verifying the **standard token
+  still encrypts to and lets you spend from** such an account. That is a research spike with a
+  real chance of hitting a protocol wall, not a wire-up.
+- **Decision (2026-07-04):** scope full stealth as R&D; keep the dApp + README copy honest about
+  what ships today (private-by-default transfers + no public address pointer + beacon
+  auto-discovery — but payments route to the owner's account, *not* a per-payment one-time
+  address) until the custom-account path is proven.
+- **What still IS true & useful today, even without one-time addresses:** on Aztec a private
+  `transfer` already hides the recipient on-chain (only encrypted note commitments appear; no
+  address in cleartext; repeated payments to one address aren't linkable *without* its viewing
+  key). So Aztec provides much of #1/#2 natively; the piece stealth-addresses would add is
+  hiding the recipient **from the payers themselves** and avoiding a single long-lived address.
 
 ## Suggested path
 

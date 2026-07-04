@@ -162,7 +162,7 @@ function SearchTab({ setAccount, onRegistered }: { setAccount: (a: string | null
         <>
           <div className="features">
             <Feature icon={I.globe} title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Bitcoin, Ethereum, and more." />
-            <Feature icon={I.shield} title="Stealth" text="Anyone can pay you, while every payment stays hidden and unlinkable on-chain." />
+            <Feature icon={I.shield} title="Stealth" text="Anyone can pay your name and it arrives privately — with no public address pointer to set or watch." />
           </div>
           <HowItWorks />
         </>
@@ -283,10 +283,10 @@ function HowItWorks() {
         shop sign, but the payments themselves stay private.</>,
     },
     {
-      icon: I.shield, mode: 'STEALTH', title: 'Stealth', who: 'No one — money still arrives',
-      story: <>Bob collects tips at <b>ghostline.tru</b> in Stealth mode. Anyone can pay without asking —
-        Alice today, a stranger tomorrow — and each payment lands at a fresh address only Bob can find.
-        Even payers comparing notes learn nothing.</>,
+      icon: I.shield, mode: 'STEALTH', title: 'Stealth', who: 'No public pointer',
+      story: <>Bob collects tips at <b>ghostline.tru</b> in Stealth mode. Unlike a Public name it sets
+        no address to advertise or repoint — anyone can still pay it, every payment reaches Bob
+        privately, and it shows up on its own. <em>(Per-payment one-time addresses are on the roadmap.)</em></>,
     },
   ];
   return (
@@ -312,7 +312,7 @@ function HowItWorks() {
 
 const MODES: { key: ModeName; label: string; hint: string }[] = [
   { key: 'PUBLIC', label: 'Public', hint: 'Anyone can look it up' },
-  { key: 'STEALTH', label: 'Stealth', hint: 'Anyone pays; each payment hidden & unlinkable' },
+  { key: 'STEALTH', label: 'Stealth', hint: 'Anyone pays privately; no public address pointer' },
 ];
 
 function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: SearchResult; onChanged: () => void; setAccount: (a: string | null) => void; onRegistered?: () => void }) {
@@ -500,9 +500,10 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
             </>
           ) : liveMode === 'STEALTH' ? (
             <>
-              <p className="muted">A <b>stealth</b> name accepts payments from anyone while keeping every payment
-                off the explorer. Publish your stealth key so wallets can derive fresh, unlinkable payment
-                details for each sender.</p>
+              <p className="muted">A <b>stealth</b> name accepts private payments from anyone with no public
+                address pointer to set or repoint — payments reach your account and surface automatically.
+                <em> Per-payment one-time (unlinkable) addresses are planned; today payments route privately
+                to your account.</em></p>
               <div className="keyline">
                 <Icon d={I.key} size={15} />
                 {keyPublished === null ? 'Checking key…'
