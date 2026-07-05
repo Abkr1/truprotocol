@@ -6,11 +6,14 @@ to names are **invisible on-chain**, and incoming payments **discover
 themselves** without the recipient ever learning who to look for. Three modes
 per name:
 
+Mode names are the user-facing labels; the enum key + number in parentheses are
+the internal/on-chain identifiers (unchanged by the rename).
+
 | Mode | Who can resolve the name → address mapping |
 |------|--------------------------------------------|
-| `PUBLIC` (0) | Anyone (ENS-equivalent). Resolves to its **owner by default** the moment it's registered (no set-address step; repoint anytime). Supports multichain address records (Ethereum/Bitcoin/Solana/… via SLIP-0044 coin types). |
-| `SELECTIVE` (1) | Only parties the owner explicitly grants — and each can be shown a *different* target. |
-| `STEALTH` (2) | The name publishes a stealth meta-key and sets **no public address pointer**; anyone can pay it and payments arrive privately (auto-discovered via the beacon), routed to the owner's account. **Per-payment unlinkable one-time addresses are scoped R&D, not yet live** — Aztec's hashed key derivation blocks the naive scheme; see [docs/stealth-mode.md](docs/stealth-mode.md). |
+| **Globus** (`PUBLIC` / 0) | Anyone (ENS-equivalent). Resolves to its **owner by default** the moment it's registered (no set-address step; repoint anytime). Supports multichain address records (Ethereum/Bitcoin/Solana/… via SLIP-0044 coin types). |
+| **Selective** (`SELECTIVE` / 1) | Only parties the owner explicitly grants — and each can be shown a *different* target. |
+| **Abditus** (`STEALTH` / 2) | The name publishes a meta-key and sets **no open address pointer**; anyone can pay it and payments arrive privately (auto-discovered via the beacon), routed to the owner's account. **Per-payment unlinkable one-time addresses are scoped R&D, not yet live** — Aztec's hashed key derivation blocks the naive scheme; see [docs/stealth-mode.md](docs/stealth-mode.md). |
 
 The chain only ever stores a **hash** of the label, never the cleartext name.
 In every mode, payments themselves are private — no sender, recipient, or

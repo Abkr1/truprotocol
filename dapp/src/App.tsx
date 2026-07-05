@@ -4,6 +4,15 @@ import type { SearchResult } from './aztec';
 import AzguardButton from './AzguardButton';
 import { priceUsdForMode, type ModeName } from './lib';
 
+// User-facing mode names. Internally the modes stay PUBLIC/SELECTIVE/STEALTH
+// (and the contract's numeric 0/1/2) — these are DISPLAY LABELS only, so the
+// rename touches no logic, storage, or on-chain state.
+const MODE_LABEL: Record<ModeName, string> = {
+  PUBLIC: 'Globus',      // openly-listed name (Latin "globe": worldwide lookup)
+  SELECTIVE: 'Selective',
+  STEALTH: 'Abditus',    // concealed name (Latin "hidden")
+};
+
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 // ---- inline icon set (no emoji) ---------------------------------------------
@@ -161,8 +170,8 @@ function SearchTab({ setAccount, onRegistered }: { setAccount: (a: string | null
       {!result && !error && (
         <>
           <div className="features">
-            <Feature icon={I.globe} title="Public + multichain" text="ENS-style public names that can point to addresses on Aztec, Bitcoin, Ethereum, and more." />
-            <Feature icon={I.shield} title="Stealth" text="Anyone can pay your name and it arrives privately — with no public address pointer to set or watch." />
+            <Feature icon={I.globe} title="Globus + multichain" text="Openly-listed names that can point to addresses on Aztec, Bitcoin, Ethereum, and more." />
+            <Feature icon={I.shield} title="Abditus" text="Anyone can pay your name and it arrives privately — with no open address pointer to set or watch." />
           </div>
           <HowItWorks />
         </>
@@ -277,14 +286,14 @@ function Feature({ icon, title, text }: { icon: JSX.Element; title: string; text
 function HowItWorks() {
   const stories: { icon: JSX.Element; mode: ModeName; title: string; who: string; story: JSX.Element }[] = [
     {
-      icon: I.globe, mode: 'PUBLIC', title: 'Public', who: 'Anyone can find him',
-      story: <>Bob opens a bakery and registers <b>bobsbakery.tru</b> as Public. Alice, Carol — anyone —
+      icon: I.globe, mode: 'PUBLIC', title: 'Globus', who: 'Anyone can find him',
+      story: <>Bob opens a bakery and registers <b>bobsbakery.tru</b> as Globus. Alice, Carol — anyone —
         can look it up and pay him on Aztec, Bitcoin or Ethereum. The address is out in the open like a
         shop sign, but the payments themselves stay private.</>,
     },
     {
-      icon: I.shield, mode: 'STEALTH', title: 'Stealth', who: 'No public pointer',
-      story: <>Bob collects tips at <b>ghostline.tru</b> in Stealth mode. Unlike a Public name it sets
+      icon: I.shield, mode: 'STEALTH', title: 'Abditus', who: 'No open pointer',
+      story: <>Bob collects tips at <b>ghostline.tru</b> in Abditus mode. Unlike a Globus name it sets
         no address to advertise or repoint — anyone can still pay it, every payment reaches Bob
         privately, and it shows up on its own. <em>(Per-payment one-time addresses are on the roadmap.)</em></>,
     },
@@ -311,8 +320,8 @@ function HowItWorks() {
 }
 
 const MODES: { key: ModeName; label: string; hint: string }[] = [
-  { key: 'PUBLIC', label: 'Public', hint: 'Anyone can look it up' },
-  { key: 'STEALTH', label: 'Stealth', hint: 'Anyone pays privately; no public address pointer' },
+  { key: 'PUBLIC', label: 'Globus', hint: 'Anyone can look it up' },
+  { key: 'STEALTH', label: 'Abditus', hint: 'Anyone pays privately; no open address pointer' },
 ];
 
 function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: SearchResult; onChanged: () => void; setAccount: (a: string | null) => void; onRegistered?: () => void }) {
@@ -372,7 +381,7 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
       </div>
 
       <div className="price-row">
-        <div><span className="price">${priceUsd}</span><span className="per"> / year · {mode.toLowerCase()}</span></div>
+        <div><span className="price">${priceUsd}</span><span className="per"> / year · {MODE_LABEL[mode]}</span></div>
         <div className="years">
           <span>Register for</span>
           <button type="button" className="step-btn" disabled={busy || years <= 1} onClick={() => setYears((y) => Math.max(1, y - 1))}>−</button>
@@ -401,7 +410,7 @@ function ResultCard({ result, onChanged, setAccount, onRegistered }: { result: S
       {!busy && <p className="muted small center">Your keys stay in your browser. Network fees are{' '}
         {azns.feeMode()?.funded ? 'paid from your account’s fee juice' : 'sponsored'} — the registration price is paid in the registry’s token.</p>}
       {busy && <p className="muted small center">{mode === 'STEALTH'
-        ? 'Registering and publishing your stealth key automatically — two private proofs, this can take a few minutes.'
+        ? 'Registering and publishing your Abditus key automatically — two private proofs, this can take a few minutes.'
         : 'This can take a minute while your registration is proven privately.'}</p>}
     </div>
   );
@@ -463,7 +472,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
         <span className="rc-name">{name}</span>
         <span className="rc-tags">
           {status !== null && <span className={`tag ${status === 1 ? 'avail' : 'taken'}`}>{STATUS_LABEL[status] ?? '—'}</span>}
-          <span className="mode-chip">{liveMode.toLowerCase()}</span>
+          <span className="mode-chip">{MODE_LABEL[liveMode]}</span>
           {owned && <span className="tag mine"><Icon d={I.check} size={12} />{justClaimed ? 'Registered' : 'Yours'}</span>}
         </span>
       </div>
@@ -487,7 +496,7 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
               <p className="muted small">Points to <b>you</b> by default — repoint it below anytime.</p>
               <label className="field">Aztec address it points to
                 <div className="row">
-                  <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="0x… address, or a public name.tru" disabled={busy} />
+                  <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="0x… address, or a Globus name.tru" disabled={busy} />
                   <button onClick={save} disabled={busy || !target.trim()}>Save</button>
                 </div>
               </label>
@@ -500,18 +509,18 @@ function OwnedCard({ name, label, justClaimed, mode, expiry, onStatus, onChanged
             </>
           ) : liveMode === 'STEALTH' ? (
             <>
-              <p className="muted">A <b>stealth</b> name accepts private payments from anyone with no public
+              <p className="muted">An <b>Abditus</b> name accepts private payments from anyone with no open
                 address pointer to set or repoint — payments reach your account and surface automatically.
                 <em> Per-payment one-time (unlinkable) addresses are planned; today payments route privately
                 to your account.</em></p>
               <div className="keyline">
                 <Icon d={I.key} size={15} />
                 {keyPublished === null ? 'Checking key…'
-                  : keyPublished ? <>Stealth key <b>published</b> — this name can receive payments.</>
-                  : <>No stealth key yet — publish one to start receiving.</>}
+                  : keyPublished ? <>Abditus key <b>published</b> — this name can receive payments.</>
+                  : <>No Abditus key yet — publish one to start receiving.</>}
               </div>
               <div className="row">
-                {!keyPublished && <button onClick={publishStealth} disabled={busy}>Publish stealth key</button>}
+                {!keyPublished && <button onClick={publishStealth} disabled={busy}>Publish Abditus key</button>}
                 <button className="ghost" onClick={renew} disabled={busy}>Renew +1 year (${priceUsdForMode(liveMode)})</button>
               </div>
             </>
