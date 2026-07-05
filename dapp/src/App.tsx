@@ -286,22 +286,24 @@ function Feature({ icon, title, text }: { icon: JSX.Element; title: string; text
 function HowItWorks() {
   const stories: { icon: JSX.Element; mode: ModeName; title: string; who: string; story: JSX.Element }[] = [
     {
-      icon: I.globe, mode: 'PUBLIC', title: 'Globus', who: 'Anyone can find him',
-      story: <>Bob opens a bakery and registers <b>bobsbakery.tru</b> as Globus. Alice, Carol — anyone —
-        can look it up and pay him on Aztec, Bitcoin or Ethereum. The address is out in the open like a
-        shop sign, but the payments themselves stay private.</>,
+      icon: I.globe, mode: 'PUBLIC', title: 'Globus', who: 'Anyone can find her',
+      story: <>Alice wants friends and family to reach her without ever swapping wallet addresses. She
+        registers <b>alice.tru</b> as Globus — a cousin, an old classmate, anyone can look it up and send
+        her money on Aztec, Bitcoin or Ethereum. Her address sits in the open like a name on a mailbox,
+        yet every payment she receives stays private.</>,
     },
     {
       icon: I.shield, mode: 'STEALTH', title: 'Abditus', who: 'No open pointer',
-      story: <>Bob collects tips at <b>ghostline.tru</b> in Abditus mode. Unlike a Globus name it sets
-        no address to advertise or repoint — anyone can still pay it, every payment reaches Bob
-        privately, and it shows up on its own. <em>(Per-payment one-time addresses are on the roadmap.)</em></>,
+      story: <>Bob would rather not tie a public address to his name, so he registers <b>bob.tru</b> as
+        Abditus. It advertises no pointer to set or repoint — yet anyone can still pay him: a friend
+        settling their half of dinner, someone paying back a loan. Each payment reaches him privately and
+        shows up on its own. <em>(Per-payment one-time addresses are on the roadmap.)</em></>,
     },
   ];
   return (
     <section className="how">
       <h2 className="how-title">How the two modes work</h2>
-      <p className="muted center how-sub">Same names, two privacy levels — here's Bob using each one.</p>
+      <p className="muted center how-sub">Same names, two privacy levels — here's Alice and Bob, one each.</p>
       {stories.map((s) => (
         <div className="how-card" key={s.mode}>
           <div className="how-head">
