@@ -1,10 +1,9 @@
 # truProtocol — private `.tru` names on Aztec
 
-A naming service for Aztec that does what ENS *can't*: a public, squat-proof
-namespace where **resolution is private and selectively disclosable**, payments
-to names are **invisible on-chain**, and incoming payments **discover
-themselves** without the recipient ever learning who to look for. Three modes
-per name:
+A naming service for Aztec that does what ENS *can't*: a squat-proof namespace
+where **payments to names are invisible on-chain** and **incoming payments
+discover themselves** — the recipient never has to know who paid. Each name is
+either openly listed or concealed. Two modes per name:
 
 Mode names are the user-facing labels; the enum key + number in parentheses are
 the internal/on-chain identifiers (unchanged by the rename).
@@ -12,7 +11,6 @@ the internal/on-chain identifiers (unchanged by the rename).
 | Mode | Who can resolve the name → address mapping |
 |------|--------------------------------------------|
 | **Globus** (`PUBLIC` / 0) | Anyone (ENS-equivalent). Resolves to its **owner by default** the moment it's registered (no set-address step; repoint anytime). Supports multichain address records (Ethereum/Bitcoin/Solana/… via SLIP-0044 coin types). |
-| **Selective** (`SELECTIVE` / 1) | Only parties the owner explicitly grants — and each can be shown a *different* target. |
 | **Abditus** (`STEALTH` / 2) | The name publishes a meta-key and sets **no open address pointer**; anyone can pay it and payments arrive privately (auto-discovered via the beacon), routed to the owner's account. **Per-payment unlinkable one-time addresses are scoped R&D, not yet live** — Aztec's hashed key derivation blocks the naive scheme; see [docs/stealth-mode.md](docs/stealth-mode.md). |
 
 The chain only ever stores a **hash** of the label, never the cleartext name.
@@ -36,7 +34,7 @@ amount ever appears on-chain.
 
 | Contract | Purpose |
 |---|---|
-| [`azns/`](azns/) | The registry. Permissionless, charged registration/renewal (the contract pulls the per-mode fee from the buyer's token balance via an authwit'd `transfer_in_private`), public existence registry + private resolver notes, per-name epochs (takeover safety), multichain address records, stealth meta-keys, and encrypted on-chain **label backups** so "My names" follows the account to any device. 15 TXE tests. |
+| [`azns/`](azns/) | The registry. Permissionless, charged registration/renewal (the contract pulls the per-mode fee from the buyer's token balance via an authwit'd `transfer_in_private`), public existence registry, per-name epochs (takeover safety), multichain address records, Abditus meta-keys, and encrypted on-chain **label backups** so "My names" follows the account to any device. 19 TXE tests. |
 | [`faucet/`](faucet/) | Open-mint test-token faucet (approved as a token minter) so any fresh browser account can self-serve tokens and exercise the paid flow. Test-net only. |
 | [`beacon/`](beacon/) | **Payment discovery.** Recipients publish a beacon key (`register_key`); payers `announce()` each payment under a tag derived from that public key, with the **payer identity ECDH-encrypted** in the payload. The kernel silos the caller-chosen tag; recipients recompute their own tag and fetch matching logs straight from any node. |
 
@@ -127,9 +125,9 @@ enqueued public step asserts it equals the stored mode — underpaying reverts.
 The label length is bound *into* `name_hash`, so lying about length produces a
 hash that doesn't match the name.
 
-**Takeover safety:** when a lapsed name is re-registered, a per-name epoch
-increments, so the previous owner's outstanding selective grants stop
-resolving.
+**Takeover safety:** when a lapsed name is re-registered, `_finalize` overwrites
+the previous owner's public target / meta-key and bumps a per-name **epoch**, so
+nothing the old owner set keeps resolving.
 
 ---
 
@@ -156,7 +154,7 @@ it carefully; changing it means deploying a new registry.
 
 ```
 truprotocol/
-├── azns/                 registry contract (main.nr, resolution_note.nr, test.nr)
+├── azns/                 registry contract (main.nr + TXE tests)
 ├── faucet/               open-mint test-token faucet contract
 ├── beacon/               payment-discovery beacon contract
 ├── dapp/                 the browser dApp (vite + React)
@@ -232,11 +230,12 @@ The browser PXE persists in a **SQLite-OPFS worker**; three things matter
 
 ## Testing
 
-- **TXE (contract) tests:** `azns/src/test.nr` — 15 tests covering modes,
-  lease lifecycle, pricing enforcement, records, epochs, and the token charge
-  (deploys a real Token, mints, builds the fee authwit).
-  Requires the canonical transpiled Token artifact in `target/` (see the
-  header comment in `test.nr`), then `nargo test --test-threads 1`.
+- **TXE (contract) tests:** `azns/src/test.nr` — 19 tests covering the two
+  modes, lease lifecycle, pricing enforcement, records, epochs, the token charge
+  (deploys a real Token, mints, builds the fee authwit), and the security-review
+  fixes (on-chain `name_hash` binding, expiry-gated resolution, grace-only owner
+  renewal). Requires the canonical transpiled Token artifact in `target/` (see
+  the header comment in `test.nr`), then `nargo test --test-threads 1`.
 - **Live E2E (run against the public testnet):**
 
 | Script | Proves |
