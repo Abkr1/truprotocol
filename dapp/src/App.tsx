@@ -282,7 +282,86 @@ function Feature({ icon, title, text }: { icon: JSX.Element; title: string; text
   );
 }
 
-/** Plain-words story of each mode, starring Bob and his payers. */
+// Branding header art for each mode, encoding its meaning:
+//  Globus  — an open globe with outward, CONNECTED links to bright dots
+//            (your address is findable and reachable across the world).
+//  Abditus — the same node dimmed behind a VEIL, its dots SCATTERED and
+//            detached and fading out (payments still arrive, but concealed
+//            and unlinkable). Dark palette + green accent, no emoji.
+const GlobusArt = () => (
+  <svg className="mode-art-svg" viewBox="0 0 640 72" preserveAspectRatio="xMinYMid slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <radialGradient id="globusBg" cx="16%" cy="8%" r="95%">
+        <stop offset="0" stopColor="#123a2a" />
+        <stop offset="1" stopColor="#0c1611" />
+      </radialGradient>
+    </defs>
+    <rect width="640" height="72" fill="url(#globusBg)" />
+    <g fill="none" stroke="#2fc27d" strokeWidth="1.4" transform="translate(58 36)">
+      <circle r="22" />
+      <ellipse rx="8" ry="22" opacity=".85" />
+      <ellipse rx="16.5" ry="22" opacity=".45" />
+      <line x1="-22" y1="0" x2="22" y2="0" />
+      <line x1="-19" y1="-11" x2="19" y2="-11" opacity=".6" />
+      <line x1="-19" y1="11" x2="19" y2="11" opacity=".6" />
+    </g>
+    <g stroke="#2fc27d" fill="none" strokeWidth="1.2">
+      <path d="M82 30 L150 20" opacity=".5" />
+      <path d="M84 44 L172 52" opacity=".42" />
+      <path d="M150 20 L250 26" opacity=".3" />
+      <path d="M172 52 L286 44" opacity=".24" />
+      <path d="M250 26 L392 32" opacity=".16" />
+    </g>
+    <g fill="#2fc27d">
+      <circle cx="150" cy="20" r="3.2" />
+      <circle cx="172" cy="52" r="3.2" />
+      <circle cx="250" cy="26" r="2.6" opacity=".7" />
+      <circle cx="286" cy="44" r="2.6" opacity=".55" />
+      <circle cx="392" cy="32" r="2.2" opacity=".4" />
+      <circle cx="470" cy="24" r="1.8" opacity=".3" />
+      <circle cx="548" cy="40" r="1.6" opacity=".22" />
+    </g>
+  </svg>
+);
+const AbditusArt = () => (
+  <svg className="mode-art-svg" viewBox="0 0 640 72" preserveAspectRatio="xMinYMid slice" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <radialGradient id="abditusBg" cx="16%" cy="8%" r="95%">
+        <stop offset="0" stopColor="#0f2c22" />
+        <stop offset="1" stopColor="#0b1410" />
+      </radialGradient>
+      <linearGradient id="abditusVeil" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stopColor="#0b1410" stopOpacity="0" />
+        <stop offset=".55" stopColor="#0b1410" stopOpacity=".5" />
+        <stop offset="1" stopColor="#0b1410" stopOpacity=".92" />
+      </linearGradient>
+    </defs>
+    <rect width="640" height="72" fill="url(#abditusBg)" />
+    <g transform="translate(58 36)">
+      <circle r="22" fill="none" stroke="#2fc27d" strokeWidth="1.4" opacity=".5" />
+      <circle cx="0" cy="2" r="3.4" fill="#2fc27d" opacity=".85" />
+      <path d="M0 -1 v-7.5" stroke="#2fc27d" strokeWidth="1.4" opacity=".55" strokeLinecap="round" />
+    </g>
+    <g fill="#2fc27d">
+      <circle cx="150" cy="24" r="2.8" opacity=".4" />
+      <circle cx="188" cy="48" r="2.8" opacity=".32" />
+      <circle cx="236" cy="28" r="2.4" opacity=".24" />
+      <circle cx="286" cy="50" r="2.4" opacity=".18" />
+      <circle cx="342" cy="34" r="2" opacity=".13" />
+    </g>
+    <g fill="none" stroke="#7fe3b4" strokeWidth="1.2" opacity=".15">
+      <path d="M96 26 q40 -7 80 0 t80 0 t80 0 t80 0" />
+      <path d="M96 40 q40 7 80 0 t80 0 t80 0 t80 0" />
+      <path d="M96 54 q40 -5 80 0 t80 0 t80 0 t80 0" />
+    </g>
+    <rect x="150" width="490" height="72" fill="url(#abditusVeil)" />
+  </svg>
+);
+const ModeArt = ({ mode }: { mode: ModeName }) => (
+  <div className="how-art">{mode === 'STEALTH' ? <AbditusArt /> : <GlobusArt />}</div>
+);
+
+/** Plain-words story of each mode — Alice on Globus, Bob on Abditus. */
 function HowItWorks() {
   const stories: { icon: JSX.Element; mode: ModeName; title: string; who: string; story: JSX.Element }[] = [
     {
@@ -306,6 +385,7 @@ function HowItWorks() {
       <p className="muted center how-sub">Same names, two privacy levels — here's Alice and Bob, one each.</p>
       {stories.map((s) => (
         <div className="how-card" key={s.mode}>
+          <ModeArt mode={s.mode} />
           <div className="how-head">
             <span className="fi"><Icon d={s.icon} size={20} /></span>
             <b>{s.title}</b>

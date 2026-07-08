@@ -296,6 +296,11 @@ button.ghost:hover { filter: none; border-color: var(--green); color: var(--gree
   background: var(--card); border: 1px solid var(--line); border-radius: 16px;
   padding: 16px 18px; margin-bottom: 12px; box-shadow: var(--shadow-sm);
 }
+/* per-mode branding header band (full-bleed to the card's rounded top).
+   Fixed height + the SVG filling it (slice, left-anchored) — robust across
+   renderers, where inline-SVG intrinsic/aspect-ratio sizing collapsed to ~0. */
+.how-art { margin: -16px -18px 14px; height: 74px; border-radius: 15px 15px 0 0; overflow: hidden; border-bottom: 1px solid var(--line); }
+.mode-art-svg { display: block; width: 100%; height: 100%; }
 .how-card p { margin: 10px 0 0; font-size: 14px; line-height: 1.65; color: var(--text); }
 .how-card b { color: var(--ink); }
 .how-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
