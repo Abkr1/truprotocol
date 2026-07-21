@@ -35,9 +35,44 @@ function setEnvVar(key: string, val: string) {
   fs.writeFileSync('dapp/.env', s);
 }
 
+// -----------------------------------------------------------------------------
+// MAINNET SAFETY GUARD (audit D1). The faucet is an OPEN, UNCAPPED mint: claim()
+// mints caller-chosen amounts to anyone. If it is ever approved as a minter of a
+// REAL token (set_minter below), anyone can mint unlimited supply and drain the
+// protocol. Refuse to run unless the target is a recognized Aztec testnet / local
+// sandbox, OR the operator explicitly forces it with ALLOW_FAUCET=1 (only ever
+// safe for a disposable token they fully control). Ethereum mainnet (L1 chainId
+// 1) is blocked unconditionally — there is no faucet on mainnet.
+async function assertNotMainnet(node: any, url: string) {
+  const forced = process.env.ALLOW_FAUCET === '1';
+  const TESTNET_L1 = new Set([11155111, 31337, 1337, 1338]); // Sepolia + common local devnets
+  let l1 = 0;
+  try {
+    const info: any = await node.getNodeInfo();
+    l1 = Number(info?.l1ChainId ?? info?.l1?.chainId ?? 0);
+  } catch { /* limited/older node RPC — fall back to the URL heuristic below */ }
+  if (l1 === 1) {
+    throw new Error(
+      'REFUSING to deploy the open-mint faucet against Ethereum mainnet (L1 chainId 1). ' +
+      'The faucet mints unlimited tokens; never wire it to a real token. There is no faucet on mainnet.',
+    );
+  }
+  const urlLooksTest = /testnet|localhost|127\.0\.0\.1|sandbox/i.test(url);
+  const looksTestnet = TESTNET_L1.has(l1) || (l1 === 0 && urlLooksTest);
+  if (!looksTestnet && !forced) {
+    throw new Error(
+      `REFUSING to deploy the open-mint faucet: target L1 chainId ${l1 || 'unknown'} (${url}) is not a recognized ` +
+      `testnet/sandbox. The faucet mints unlimited test tokens; approving it as a minter of a real token drains the ` +
+      `protocol. If this really is a disposable token on a chain you control, re-run with ALLOW_FAUCET=1.`,
+    );
+  }
+  console.log(`faucet safety check OK (L1 chainId ${l1 || 'unknown'}${forced ? ', forced via ALLOW_FAUCET=1' : ''}).`);
+}
+
 async function main() {
   console.log('faucet deploy against:', NODE_URL);
   const { wallet, account, node, fee } = await setupDeployer(NODE_URL);
+  await assertNotMainnet(node, NODE_URL);
   const tokenStr = process.env.PAY_TOKEN_ADDRESS || envVar('PAY_TOKEN_ADDRESS');
   if (!tokenStr) throw new Error('PAY_TOKEN_ADDRESS not set — run npm run deploy:testnet first.');
   const token = AztecAddress.fromStringUnsafe(tokenStr);

@@ -88,7 +88,7 @@ async function main() {
   console.log(`attempting register "${label}" with no tokens (expect REVERT) ...`);
   let revertedWhenBroke = false;
   try {
-    await azns.methods.register(nh, packLabel(label), len, buyer, 1, MODE.PUBLIC).send({ from: buyer, fee });
+    await azns.methods.register(nh, packLabel(label), len, buyer, 1, MODE.PUBLIC, Fr.random()).send({ from: buyer, fee });
     console.log('  !! register SUCCEEDED with zero balance - FEE NOT ENFORCED');
   } catch (e: any) {
     revertedWhenBroke = true;
@@ -101,7 +101,7 @@ async function main() {
   const before = await balance();
   console.log(`buyer token balance: ${before}`);
   console.log(`registering "${label}" with the fee (expect SUCCESS) ...`);
-  await sendWait('register', () => azns.methods.register(nh, packLabel(label), len, buyer, 1, MODE.PUBLIC));
+  await sendWait('register', () => azns.methods.register(nh, packLabel(label), len, buyer, 1, MODE.PUBLIC, Fr.random()));
 
   const owner = await azns.methods.owner_of(nh).simulate({ from: buyer });
   const status = big(await azns.methods.lease_status(nh).simulate({ from: buyer }));

@@ -51,7 +51,7 @@ async function main() {
 
   console.log(`\n[1] register ${normaliseName(NAME)} in PUBLIC (permissionless) ...`);
   try {
-    await azns.methods.register(nh, packLabel(NAME), len, account, 1, MODE.PUBLIC)
+    await azns.methods.register(nh, packLabel(NAME), len, account, 1, MODE.PUBLIC, Fr.random())
       .send({ from: account, fee });
     console.log('    PUBLIC registration succeeded.');
   } catch (e: any) { console.log('    failed:', e?.message); }
@@ -59,7 +59,7 @@ async function main() {
   for (const mode of ['SELECTIVE', 'STEALTH'] as const) {
     console.log(`\n[+] try the SAME name in ${mode} (simulate) ...`);
     try {
-      await azns.methods.register(nh, packLabel(NAME), len, account, 1, MODE[mode]).simulate({ from: account });
+      await azns.methods.register(nh, packLabel(NAME), len, account, 1, MODE[mode], Fr.random()).simulate({ from: account });
       console.log(`    ⚠️ unexpectedly allowed in ${mode}`);
     } catch (e: any) {
       console.log(`    ❌ rejected (expected): ${(e?.message || '').split('\n')[0]}`);

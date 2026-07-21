@@ -85,7 +85,7 @@ async function main() {
     const len = labelLength(raw);
     const modeName = (Object.keys(MODE) as (keyof typeof MODE)[]).find((k) => MODE[k] === mode)!;
     console.log(`   registering "${normaliseName(raw)}" (${modeName}, $${priceCentsForMode(modeName) / 100}/yr)`);
-    await send(alice, azns.methods.register(nh, packLabel(raw), len, owner, years, mode));
+    await send(alice, azns.methods.register(nh, packLabel(raw), len, owner, years, mode, Fr.random()));
     return nh;
   };
   const epochOf = async (nh: any) => sim(alice, azns.methods.current_epoch(nh));
@@ -110,7 +110,7 @@ async function main() {
 
   // --- 5. LEASE: renew trulib +2yr, read status --------------------------
   // renew now takes the name's MODE (priced per mode, verified on-chain).
-  await send(alice, azns.methods.renew(trulib, MODE.PUBLIC, 2));
+  await send(alice, azns.methods.renew(trulib, MODE.PUBLIC, 2, Fr.random()));
   const status = await sim(alice, azns.methods.lease_status(trulib));
   console.log(`\n[LEASE]   renewed ${normaliseName('trulib')} +2yr; lease_status -> ${status} (expect 1 active)`);
 

@@ -35,7 +35,7 @@ async function main() {
   const nh = await nameHash(NAME);
   console.log(`\n[1] register ${normaliseName(NAME)} PUBLIC (permissionless, no proof) ...`);
   await azns.methods
-    .register(nh, packLabel(NAME), labelLength(NAME), account, 1, MODE.PUBLIC)
+    .register(nh, packLabel(NAME), labelLength(NAME), account, 1, MODE.PUBLIC, Fr.random())
     .send({ from: account, fee });
   console.log('    registered.');
 

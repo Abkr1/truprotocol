@@ -59,7 +59,7 @@ async function main() {
   const len = labelLength(RAW);
 
   console.log(`\nregister "${normaliseName(RAW)}" (PUBLIC, 1y, permissionless) ...`);
-  await send(azns.methods.register(nh, packLabel(RAW), len, account, 1, MODE.PUBLIC));
+  await send(azns.methods.register(nh, packLabel(RAW), len, account, 1, MODE.PUBLIC, Fr.random()));
   console.log('  registered.');
 
   console.log('reading back state ...');

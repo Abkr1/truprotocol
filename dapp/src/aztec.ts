@@ -276,7 +276,7 @@ async function treasuryAddr(): Promise<string> {
 /** The fee-pull authwit action for Azguard txs: authorize AZNS to move the
  *  per-mode fee from the connected account to the treasury (the wallet signs
  *  it). Mirrors what the EmbeddedWallet auto-creates during pre-simulation. */
-async function azFeeAuthwitActions(modeVal: number, years: number, payer: string): Promise<any[]> {
+async function azFeeAuthwitActions(modeVal: number, years: number, payer: string, feeNonce: string): Promise<any[]> {
   const fee = await feeAmount(modeVal, years);
   if (fee === 0n) return []; // free config - nothing to authorize
   return [{
@@ -286,7 +286,10 @@ async function azFeeAuthwitActions(modeVal: number, years: number, payer: string
       caller: conn!.azns.address.toString(),
       contract: await paymentToken(),
       method: 'transfer_in_private',
-      args: [payer, await treasuryAddr(), fee.toString(), 0],
+      // The fee-pull nonce MUST match the one register()/renew() passes on-chain
+      // and be unique per charge (see fee_nonce in the contract) or two same-price
+      // charges from one account reuse an authwit and the second reverts.
+      args: [payer, await treasuryAddr(), fee.toString(), feeNonce],
     },
   }];
 }
@@ -364,18 +367,22 @@ export async function register(raw: string, mode: ModeName, years: number, onSte
   onStep(`Registering ${normaliseName(raw)}…`);
   // The packed label is minted back to the owner as an encrypted on-chain
   // backup, so any browser/device with these keys can rebuild "My names".
+  // Fresh per-charge fee-authwit nonce (see fee_nonce in the contract): unique
+  // so registering multiple names at the same price from one account doesn't
+  // reuse a spent authwit and revert.
+  const feeNonce = Fr.random();
   const az = azMode();
   if (az) {
     // One wallet tx: authorize the fee pull + register. Azguard proves + pays.
     await azSendTx([
-      ...(await azFeeAuthwitActions(modeVal, years, az.address)),
-      { kind: 'call', contract: c.azns.address.toString(), method: 'register', args: [nh.toString(), packLabel(raw).toString(), len, az.address, years, modeVal] },
+      ...(await azFeeAuthwitActions(modeVal, years, az.address, feeNonce.toString())),
+      { kind: 'call', contract: c.azns.address.toString(), method: 'register', args: [nh.toString(), packLabel(raw).toString(), len, az.address, years, modeVal, feeNonce.toString()] },
     ]);
     // Publish the discovery key while the user is already in a signing flow
     // (the background watcher never prompts an external wallet unasked).
     ensureBeaconKey(onStep).catch(() => { /* next write retries */ });
   } else {
-    await sendRetry(() => c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal));
+    await sendRetry(() => c.azns.methods.register(nh, packLabel(raw), len, c.account, years, modeVal, feeNonce));
   }
   recordName(raw, mode, years);
   if (mode === 'STEALTH') {
@@ -535,14 +542,15 @@ export async function renew(raw: string, mode: ModeName, years: number, onStep: 
   await ensureFeeCovered(MODE[mode], years);
   onStep('Renewing…');
   const nh = await nameHash(raw);
+  const feeNonce = Fr.random(); // unique per-charge fee-authwit nonce (see register)
   const az = azMode();
   if (az) {
     await azSendTx([
-      ...(await azFeeAuthwitActions(MODE[mode], years, az.address)),
-      { kind: 'call', contract: conn!.azns.address.toString(), method: 'renew', args: [nh.toString(), MODE[mode], years] },
+      ...(await azFeeAuthwitActions(MODE[mode], years, az.address, feeNonce.toString())),
+      { kind: 'call', contract: conn!.azns.address.toString(), method: 'renew', args: [nh.toString(), MODE[mode], years, feeNonce.toString()] },
     ]);
   } else {
-    await sendRetry(() => conn!.azns.methods.renew(nh, MODE[mode], years));
+    await sendRetry(() => conn!.azns.methods.renew(nh, MODE[mode], years, feeNonce));
   }
   recordRenewal(raw.trim().toLowerCase().replace(/\.tru$/, ''), years);
 }

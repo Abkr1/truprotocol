@@ -116,6 +116,18 @@ pub contract AZNS {
         (cents as u128) * unit_per_cent
     }
 
+    // Storage key for a name's per-registration public data (stealth meta-key,
+    // multichain records), scoped to the name's current epoch. Because
+    // `_finalize` bumps the epoch on every (re)registration, a takeover moves
+    // these reads/writes to a fresh slot, orphaning the prior owner's data -
+    // the same stale-out the epoch gives selective grants. Without this, a
+    // lapsed-then-retaken name would keep serving the old owner's stealth key /
+    // address records (payment misdirection).
+    #[contract_library_method]
+    fn versioned_key(name_hash: Field, epoch: u64) -> Field {
+        poseidon2_hash([name_hash, epoch as Field])
+    }
+
     #[storage]
     struct Storage<Context> {
         // ---- FEE SETTLEMENT (set once at deploy) -------------------------
@@ -131,9 +143,12 @@ pub contract AZNS {
         expiry: Map<Field, PublicMutable<u64, Context>, Context>,
         mode: Map<Field, PublicMutable<u8, Context>, Context>,
         public_target: Map<Field, PublicMutable<AztecAddress, Context>, Context>,
-        // ENS-style multichain records: name_hash -> coin_type -> address bytes.
+        // ENS-style multichain records: versioned_key(name_hash, epoch) ->
+        // coin_type -> address bytes. Keyed by the epoch-scoped slot so a
+        // takeover orphans the prior owner's records.
         records: Map<Field, Map<Field, PublicMutable<AddrRecord, Context>, Context>, Context>,
         // Stealth meta-keys for stealth-mode names (public; payers read them).
+        // Keyed by versioned_key(name_hash, epoch), same epoch-scoping as records.
         stealth: Map<Field, PublicMutable<StealthKey, Context>, Context>,
 
         // Per-name epoch. Incremented every time a name is (re)registered, so a
@@ -202,6 +217,12 @@ pub contract AZNS {
         owner: AztecAddress,
         duration_years: u64,
         mode: u8,
+        // Authwit nonce for the fee pull. MUST be unique per charge (the client
+        // passes a fresh random value): the fee authwit's nullifier is
+        // deterministic in (token-caller, from, to, amount, nonce), so a fixed
+        // nonce would make two same-price registrations from one account reuse
+        // one authwit -> the second reverts on the spent nullifier.
+        fee_nonce: Field,
     ) {
         // You can only register a name to YOURSELF. Without this, anyone could
         // assign ownership (and a label-backup note, and - once _charge is wired
@@ -235,7 +256,7 @@ pub contract AZNS {
         // authwit off-chain - see the dApp). owner == msg_sender (asserted above).
         let amount = cents_to_tokens(total_cents, self.storage.unit_per_cent.read());
         Token::at(self.storage.payment_token.read())
-            .transfer_in_private(owner, self.storage.treasury.read(), amount, 0)
+            .transfer_in_private(owner, self.storage.treasury.read(), amount, fee_nonce)
             .call(self.context);
 
         // Private label backup for the owner (encrypted; invisible on-chain).
@@ -317,7 +338,7 @@ pub contract AZNS {
     // be within the owner's control window: name exists AND (not yet expired OR
     // still inside grace period).
     #[external("private")]
-    fn renew(name_hash: Field, mode: u8, duration_years: u64) {
+    fn renew(name_hash: Field, mode: u8, duration_years: u64, fee_nonce: Field) {
         assert(duration_years >= 1, "minimum renewal is 1 year");
         let renewer = self.msg_sender(); // authenticated; forwarded to the grace check
         let annual_cents = price_for_mode(mode);
@@ -326,7 +347,7 @@ pub contract AZNS {
         // Charge first (private pull from the renewer), then extend expiry.
         let amount = cents_to_tokens(total_cents, self.storage.unit_per_cent.read());
         Token::at(self.storage.payment_token.read())
-            .transfer_in_private(renewer, self.storage.treasury.read(), amount, 0)
+            .transfer_in_private(renewer, self.storage.treasury.read(), amount, fee_nonce)
             .call(self.context);
 
         let extra_secs = duration_years * YEAR_SECS;
@@ -442,7 +463,10 @@ pub contract AZNS {
     fn set_addr(name_hash: Field, coin_type: Field, hi: Field, lo: Field, len: u8) {
         assert(self.storage.owners.at(name_hash).read().eq(self.msg_sender()), "only owner");
         assert(self.storage.mode.at(name_hash).read() == MODE_PUBLIC, "records are for public names");
-        self.storage.records.at(name_hash).at(coin_type).write(AddrRecord { hi, lo, len });
+        // Epoch-scoped so a takeover (which bumps the epoch) can't leave a prior
+        // owner's records readable under the name (see versioned_key).
+        let epoch = self.storage.name_epoch.at(name_hash).read();
+        self.storage.records.at(versioned_key(name_hash, epoch)).at(coin_type).write(AddrRecord { hi, lo, len });
     }
 
     #[external("public")]
@@ -451,7 +475,8 @@ pub contract AZNS {
         let owner = self.storage.owners.at(name_hash).read();
         let exp = self.storage.expiry.at(name_hash).read();
         if (!owner.is_zero()) & (self.context.timestamp() <= (exp + GRACE_PERIOD_SECS)) {
-            self.storage.records.at(name_hash).at(coin_type).read()
+            let epoch = self.storage.name_epoch.at(name_hash).read();
+            self.storage.records.at(versioned_key(name_hash, epoch)).at(coin_type).read()
         } else {
             AddrRecord { hi: 0, lo: 0, len: 0 }
         }
@@ -459,14 +484,20 @@ pub contract AZNS {
 
     // ---- STEALTH META-KEY (MODE_STEALTH) -----------------------------------
     // The owner publishes a stealth meta-key (spend + view public points).
-    // Anyone can read it and pay the name; the wallet derives a fresh one-time
-    // address per payment (off-chain), so every payment is unlinkable and the
-    // owner's real address is never exposed. The contract just stores/serves it.
+    // NOTE: per-payment one-time-address derivation is NOT yet implemented - the
+    // standard Aztec token can't support it (account keys are hash-derived, not
+    // EC-homomorphic, so a sender can't derive a spendable one-time address from
+    // the meta-key; see docs/stealth-mode.md). Today the key is published and
+    // served, but payments route privately to the owner's account (+ beacon
+    // discovery): they are private notes, not unlinkable one-time addresses.
+    // The key is epoch-scoped (versioned_key) so a takeover can't serve a prior
+    // owner's key.
     #[external("public")]
     fn set_stealth_meta(name_hash: Field, key: StealthKey) {
         assert(self.storage.owners.at(name_hash).read().eq(self.msg_sender()), "only owner");
         assert(self.storage.mode.at(name_hash).read() == MODE_STEALTH, "name is not stealth mode");
-        self.storage.stealth.at(name_hash).write(key);
+        let epoch = self.storage.name_epoch.at(name_hash).read();
+        self.storage.stealth.at(versioned_key(name_hash, epoch)).write(key);
     }
 
     #[external("public")]
@@ -475,7 +506,8 @@ pub contract AZNS {
         let owner = self.storage.owners.at(name_hash).read();
         let exp = self.storage.expiry.at(name_hash).read();
         if (!owner.is_zero()) & (self.context.timestamp() <= (exp + GRACE_PERIOD_SECS)) {
-            self.storage.stealth.at(name_hash).read()
+            let epoch = self.storage.name_epoch.at(name_hash).read();
+            self.storage.stealth.at(versioned_key(name_hash, epoch)).read()
         } else {
             StealthKey { spend_x: 0, spend_y: 0, view_x: 0, view_y: 0 }
         }

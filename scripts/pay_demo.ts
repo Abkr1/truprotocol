@@ -47,7 +47,7 @@ async function main() {
   // EmbeddedWallet auto-builds the fee authwit during its pre-simulation.
   const { contract: azns } = await AZNSContract.deploy(wallet, token.address, payer, 1n).send({ from: payer, fee });
   const nh = await nameHash('trupay');
-  await send(payer, azns.methods.register(nh, packLabel('trupay'), labelLength('trupay'), payer, 1, MODE.PUBLIC));
+  await send(payer, azns.methods.register(nh, packLabel('trupay'), labelLength('trupay'), payer, 1, MODE.PUBLIC, Fr.random()));
   await send(payer, azns.methods.set_public_target(nh, recipient));
 
   console.log('\n--- balances before ---');
