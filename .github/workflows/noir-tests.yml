@@ -43,23 +43,24 @@ jobs:
       - name: Install Aztec toolchain (${{ env.AZTEC_VERSION }})
         run: |
           set -euo pipefail
-          # Direct per-version installer. aztec-up's `install` subcommand can
-          # transiently 404 and the fetch can reset, so retry a few times.
+          # Bootstrap aztec-up (this also sets up the ~/.aztec/current symlink).
+          curl -fsSL https://install.aztec.network | bash
+          export PATH="$HOME/.aztec/bin:$PATH"
+          # `aztec-up install <ver>` can transiently 404 / reset — retry it.
           ok=""
-          for i in 1 2 3; do
-            if curl -fsSL "https://install.aztec-labs.com/${AZTEC_VERSION}/install" | bash; then ok=1; break; fi
-            echo "install attempt $i failed; retrying in 5s"; sleep 5
+          for i in 1 2 3 4; do
+            if aztec-up install "$AZTEC_VERSION"; then ok=1; break; fi
+            echo "aztec-up install attempt $i failed; retrying in 8s"; sleep 8
           done
-          [ -n "$ok" ] || { echo "toolchain install failed after retries"; exit 1; }
-          # ~/.aztec/bin holds only `aztec-up`; the versioned tools (aztec, nargo,
-          # aztec-txe) live under ~/.aztec/current/{bin,internal-bin}.
+          [ -n "$ok" ] || { echo "aztec-up install failed after retries"; exit 1; }
+          # The versioned tools (aztec, nargo, aztec-txe) live under
+          # ~/.aztec/current/{bin,internal-bin}; ~/.aztec/bin only has aztec-up.
           {
             echo "$HOME/.aztec/bin"
             echo "$HOME/.aztec/current/bin"
             echo "$HOME/.aztec/current/internal-bin"
           } >> "$GITHUB_PATH"
-          export PATH="$HOME/.aztec/bin:$HOME/.aztec/current/bin:$HOME/.aztec/current/internal-bin:$PATH"
-          aztec-up use "$AZTEC_VERSION" || true
+          export PATH="$HOME/.aztec/current/bin:$HOME/.aztec/current/internal-bin:$PATH"
           aztec --version
           nargo --version
 
