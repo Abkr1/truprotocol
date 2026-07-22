@@ -44,22 +44,19 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL https://install.aztec.network | bash
-          echo "$HOME/.aztec/bin" >> "$GITHUB_PATH"
+          # ~/.aztec/bin holds only `aztec-up`; the versioned tools (aztec, nargo,
+          # aztec-txe) live under ~/.aztec/current/{bin,internal-bin} once a
+          # version is installed + activated via `aztec-up install`.
           export PATH="$HOME/.aztec/bin:$PATH"
-          # Pin the exact version (installer defaults to latest, which may be a
-          # different major line). Try the flag variants across aztec-up builds.
-          aztec-up -v "$AZTEC_VERSION" || aztec-up "$AZTEC_VERSION" || VERSION="$AZTEC_VERSION" aztec-up
+          aztec-up install "$AZTEC_VERSION"
+          {
+            echo "$HOME/.aztec/bin"
+            echo "$HOME/.aztec/current/bin"
+            echo "$HOME/.aztec/current/internal-bin"
+          } >> "$GITHUB_PATH"
+          export PATH="$HOME/.aztec/current/bin:$HOME/.aztec/current/internal-bin:$PATH"
           aztec --version
-
-      - name: Locate native nargo
-        run: |
-          set -euo pipefail
-          NARGO="$(ls "$HOME"/.aztec/*/internal-bin/nargo 2>/dev/null | tail -n1 || true)"
-          [ -z "$NARGO" ] && NARGO="$(command -v aztec-nargo || command -v nargo || true)"
-          if [ -z "$NARGO" ]; then echo "nargo not found under ~/.aztec"; find "$HOME/.aztec" -maxdepth 6 -name nargo -type f 2>/dev/null; exit 1; fi
-          echo "NARGO=$NARGO" >> "$GITHUB_ENV"
-          echo "$(dirname "$NARGO")" >> "$GITHUB_PATH"
-          "$NARGO" --version
+          nargo --version
 
       - name: Compile (AVM transpile) + codegen
         working-directory: azns
@@ -91,7 +88,7 @@ jobs:
           for i in $(seq 1 120); do curl -sf -o /dev/null http://127.0.0.1:8081 && break; sleep 1; done
           echo "TXE up after ${i}s (pid $TXE_PID)"
           set +e
-          "$NARGO" test --silence-warnings --oracle-resolver http://127.0.0.1:8081 --test-threads 1
+          nargo test --silence-warnings --oracle-resolver http://127.0.0.1:8081 --test-threads 1
           RC=$?
           set -e
           kill "$TXE_PID" 2>/dev/null || true
