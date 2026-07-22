@@ -21,13 +21,13 @@
     "claim:fpc": "tsx scripts/claim_fpc.ts"
   },
   "dependencies": {
-    "@aztec/accounts": "5.0.0-nightly.20260701",
-    "@aztec/aztec.js": "5.0.0-nightly.20260701",
-    "@aztec/bb.js": "5.0.0-nightly.20260701",
-    "@aztec/foundation": "5.0.0-nightly.20260701",
-    "@aztec/noir-contracts.js": "5.0.0-nightly.20260701",
-    "@aztec/noir-noir_js": "5.0.0-nightly.20260701",
-    "@aztec/wallets": "5.0.0-nightly.20260701"
+    "@aztec/accounts": "5.0.0",
+    "@aztec/aztec.js": "5.0.0",
+    "@aztec/bb.js": "5.0.0",
+    "@aztec/foundation": "5.0.0",
+    "@aztec/noir-contracts.js": "5.0.0",
+    "@aztec/noir-noir_js": "5.0.0",
+    "@aztec/wallets": "5.0.0"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

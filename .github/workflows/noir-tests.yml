@@ -26,7 +26,7 @@ concurrency:
 env:
   # Pin to the version azns/Nargo.toml's aztec-nr + token deps target. Bump here
   # and in Nargo.toml together.
-  AZTEC_VERSION: 5.0.0-nightly.20260701
+  AZTEC_VERSION: 5.0.0
 
 jobs:
   txe-tests:
@@ -43,18 +43,23 @@ jobs:
       - name: Install Aztec toolchain (${{ env.AZTEC_VERSION }})
         run: |
           set -euo pipefail
-          curl -fsSL https://install.aztec.network | bash
+          # Direct per-version installer. aztec-up's `install` subcommand can
+          # transiently 404 and the fetch can reset, so retry a few times.
+          ok=""
+          for i in 1 2 3; do
+            if curl -fsSL "https://install.aztec-labs.com/${AZTEC_VERSION}/install" | bash; then ok=1; break; fi
+            echo "install attempt $i failed; retrying in 5s"; sleep 5
+          done
+          [ -n "$ok" ] || { echo "toolchain install failed after retries"; exit 1; }
           # ~/.aztec/bin holds only `aztec-up`; the versioned tools (aztec, nargo,
-          # aztec-txe) live under ~/.aztec/current/{bin,internal-bin} once a
-          # version is installed + activated via `aztec-up install`.
-          export PATH="$HOME/.aztec/bin:$PATH"
-          aztec-up install "$AZTEC_VERSION"
+          # aztec-txe) live under ~/.aztec/current/{bin,internal-bin}.
           {
             echo "$HOME/.aztec/bin"
             echo "$HOME/.aztec/current/bin"
             echo "$HOME/.aztec/current/internal-bin"
           } >> "$GITHUB_PATH"
-          export PATH="$HOME/.aztec/current/bin:$HOME/.aztec/current/internal-bin:$PATH"
+          export PATH="$HOME/.aztec/bin:$HOME/.aztec/current/bin:$HOME/.aztec/current/internal-bin:$PATH"
+          aztec-up use "$AZTEC_VERSION" || true
           aztec --version
           nargo --version
 
@@ -62,7 +67,14 @@ jobs:
         working-directory: azns
         run: |
           set -euo pipefail
-          aztec compile --force
+          # The first compile fetches the aztec-packages git deps; that clone can
+          # reset mid-transfer ("Connection reset by peer"), so retry.
+          ok=""
+          for i in 1 2 3; do
+            if aztec compile --force; then ok=1; break; fi
+            echo "compile attempt $i failed (often a transient dep-clone reset); retrying in 5s"; sleep 5
+          done
+          [ -n "$ok" ] || { echo "compile failed after retries"; exit 1; }
           aztec codegen ./target -o ./target
           echo "--- target/ ---"; ls -1 target/
 
