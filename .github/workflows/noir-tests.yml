@@ -1,0 +1,100 @@
+name: Noir TXE tests
+
+# Runs the AZNS Noir/TXE suite in the cloud. The local WSL VM hard-crashes on
+# TXE test execution (nested-Hyper-V/WASM issue); a native GitHub Linux runner
+# (16 GB, no nested virt) sidesteps that. Mirrors the local run_build_paid.sh +
+# run_test.sh recipe: pin the toolchain, compile (AVM transpile) + codegen, drop
+# the canonical Token artifact into target/ (env.deploy("Token") needs it), then
+# start a local TXE and run `nargo test`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'azns/**'
+      - '.github/workflows/noir-tests.yml'
+  pull_request:
+    paths:
+      - 'azns/**'
+      - '.github/workflows/noir-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: noir-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin to the version azns/Nargo.toml's aztec-nr + token deps target. Bump here
+  # and in Nargo.toml together.
+  AZTEC_VERSION: 5.0.0-nightly.20260701
+
+jobs:
+  txe-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Aztec toolchain (${{ env.AZTEC_VERSION }})
+        run: |
+          set -euo pipefail
+          curl -fsSL https://install.aztec.network | bash
+          echo "$HOME/.aztec/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.aztec/bin:$PATH"
+          # Pin the exact version (installer defaults to latest, which may be a
+          # different major line). Try the flag variants across aztec-up builds.
+          aztec-up -v "$AZTEC_VERSION" || aztec-up "$AZTEC_VERSION" || VERSION="$AZTEC_VERSION" aztec-up
+          aztec --version
+
+      - name: Locate native nargo
+        run: |
+          set -euo pipefail
+          NARGO="$(ls "$HOME"/.aztec/*/internal-bin/nargo 2>/dev/null | tail -n1 || true)"
+          [ -z "$NARGO" ] && NARGO="$(command -v aztec-nargo || command -v nargo || true)"
+          if [ -z "$NARGO" ]; then echo "nargo not found under ~/.aztec"; find "$HOME/.aztec" -maxdepth 6 -name nargo -type f 2>/dev/null; exit 1; fi
+          echo "NARGO=$NARGO" >> "$GITHUB_ENV"
+          echo "$(dirname "$NARGO")" >> "$GITHUB_PATH"
+          "$NARGO" --version
+
+      - name: Compile (AVM transpile) + codegen
+        working-directory: azns
+        run: |
+          set -euo pipefail
+          aztec compile --force
+          aztec codegen ./target -o ./target
+          echo "--- target/ ---"; ls -1 target/
+
+      - name: Drop the canonical Token artifact into target/
+        working-directory: azns
+        run: |
+          set -euo pipefail
+          SRC="$(ls "$HOME"/.aztec/*/node_modules/@aztec/noir-contracts.js/artifacts/token_contract-Token.json 2>/dev/null | tail -n1 || true)"
+          if [ -z "$SRC" ]; then
+            SRC="$(find "$HOME/.aztec" -maxdepth 8 -name token_contract-Token.json 2>/dev/null | head -n1)"
+          fi
+          if [ -z "$SRC" ]; then echo "Token artifact not found — env.deploy(\"Token\") will fail"; exit 1; fi
+          echo "token artifact: $SRC"
+          cp "$SRC" target/azns-Token.json
+          echo "--- target/ ---"; ls -1 target/
+
+      - name: Run TXE suite
+        working-directory: azns
+        run: |
+          set -uo pipefail
+          aztec start --txe --port 8081 > txe.log 2>&1 &
+          TXE_PID=$!
+          for i in $(seq 1 120); do curl -sf -o /dev/null http://127.0.0.1:8081 && break; sleep 1; done
+          echo "TXE up after ${i}s (pid $TXE_PID)"
+          set +e
+          "$NARGO" test --silence-warnings --oracle-resolver http://127.0.0.1:8081 --test-threads 1
+          RC=$?
+          set -e
+          kill "$TXE_PID" 2>/dev/null || true
+          echo "=== nargo test exit: $RC ==="
+          echo "--- txe.log (tail) ---"; tail -n 25 txe.log || true
+          exit $RC
